@@ -155,6 +155,8 @@ function describeMeta(entry, game) {
   if (meta.wave) bits.push(`wave ${meta.wave}`);
   if (meta.lines) bits.push(`${meta.lines} lines`);
   if (meta.length) bits.push(`length ${meta.length}`);
+  if (meta.mode) bits.push(String(meta.mode));
+  if (meta.draw) bits.push(`draw ${meta.draw}`);
   if (meta.tile) bits.push(`tile ${meta.tile}`);
   return bits.join(' · ') || game.scoreLabel;
 }

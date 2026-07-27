@@ -4,11 +4,20 @@ import { BaseGame } from '../core/game.js';
 /**
  * SNAKE 3D
  *
- * The rules are the ones you already know — the interesting part is the camera.
- * It rides behind the head, banks into turns, and pulls back as you grow, which
- * means "left" stops meaning a fixed world axis. So steering is interpreted
- * relative to the camera: press left and the snake turns left *from where you
- * are sitting*, whichever way it happens to be pointing.
+ * Two ways to play, chosen from the camera control in the play bar.
+ *
+ *   Fixed  — the camera holds one angle over the whole arena and never turns.
+ *            Left is west, up is north, always. This is Snake as you know it,
+ *            just rendered in three dimensions, and it is the default.
+ *
+ *   Chase  — the camera rides behind the head and banks into every turn. That
+ *            is a better view, but it means "left" stops pointing at a fixed
+ *            world axis, so steering becomes relative to where you are sitting:
+ *            press left and the snake turns left *on screen*, whichever way it
+ *            happens to be facing. Harder to hold in your head, worth 1.3x.
+ *
+ * Both modes run the same simulation; only the camera and the frame that input
+ * is interpreted in differ. Switching mid-run is allowed and applies instantly.
  *
  * The body is one InstancedMesh, so a 200-segment snake is still a single draw
  * call, and positions are interpolated between simulation steps so movement
@@ -28,6 +37,22 @@ const DIRECTIONS = {
 
 const OPPOSITE = { north: 'south', south: 'north', east: 'west', west: 'east' };
 
+/** Where the fixed camera sits, and what it looks at. */
+const FIXED_EYE = { x: 0, y: 20.5, z: 16.5 };
+const FIXED_LOOK = { x: 0, y: 0, z: -0.6 };
+
+/**
+ * Fixed mode frames the arena by narrowing the lens rather than moving the
+ * camera closer — dollying in would steepen the angle and flatten the 3D read,
+ * where a longer lens just fills the frame. The two are lerped on a mode
+ * switch, so the change reads as a zoom.
+ */
+const FIXED_FOV = 40;
+const CHASE_FOV = 58;
+
+/** Chase mode asks more of you, so it pays more. */
+const CHASE_MULTIPLIER = 1.3;
+
 export default class Snake3D extends BaseGame {
   static id = 'snake3d';
   static width = 16;
@@ -37,9 +62,30 @@ export default class Snake3D extends BaseGame {
   static smooth = true;
   static hudLabels = { score: 'Score', secondary: 'Length' };
 
+  static options = [
+    {
+      id: 'camera',
+      label: 'Camera',
+      default: 'fixed',
+      choices: [
+        {
+          value: 'fixed',
+          label: 'Fixed',
+          hint: 'Fixed camera — left is always west, up is always north.',
+        },
+        {
+          value: 'chase',
+          label: 'Chase',
+          hint: 'Chase camera — it banks into turns, so steering is relative. Scores 1.3x.',
+        },
+      ],
+    },
+  ];
+
   setup() {
     this.host.setSecondaryLabel('Length');
-    this.host.setHint('Steering is relative to the camera');
+    this.mode = this.option('camera');
+    this.#applyModeHint();
 
     this.#buildScene();
     this.#reset();
@@ -65,7 +111,7 @@ export default class Snake3D extends BaseGame {
     this.scene = new THREE.Scene();
     this.scene.fog = new THREE.Fog(0x04060a, 18, 46);
 
-    this.camera = new THREE.PerspectiveCamera(58, 16 / 10, 0.1, 200);
+    this.camera = new THREE.PerspectiveCamera(CHASE_FOV, 16 / 10, 0.1, 200);
     this.camera.position.set(0, 14, 16);
     this.cameraTarget = new THREE.Vector3();
     this.camYaw = 0;
@@ -210,6 +256,24 @@ export default class Snake3D extends BaseGame {
     this.resize(canvas.clientWidth || 800, canvas.clientHeight || 500, Math.min(2, devicePixelRatio || 1));
   }
 
+  /* ========================================================= camera modes */
+
+  /** Live mode switching — the camera glides across rather than cutting. */
+  onOptionChange(id, value) {
+    if (id !== 'camera') return false;
+    this.mode = value;
+    this.#applyModeHint();
+    return true;
+  }
+
+  #applyModeHint() {
+    this.host.setHint(
+      this.mode === 'chase'
+        ? 'Chase camera — steering is relative to the view · 1.3x score'
+        : 'Fixed camera — left is west, up is north',
+    );
+  }
+
   /* ================================================================ state */
 
   #reset() {
@@ -238,9 +302,15 @@ export default class Snake3D extends BaseGame {
 
     this.#placeFood();
 
-    // Start the camera already behind the snake rather than swinging in.
-    this.camYaw = Math.atan2(-DIRECTIONS[this.direction].x, -DIRECTIONS[this.direction].z);
-    this.camera.position.copy(this.#desiredCameraPosition());
+    // Start where the camera belongs rather than swinging in from nowhere.
+    this.camYaw =
+      this.mode === 'chase'
+        ? Math.atan2(-DIRECTIONS[this.direction].x, -DIRECTIONS[this.direction].z)
+        : 0;
+    this.camera.position.copy(this.#desiredCameraPosition(this.scratchA));
+    this.cameraTarget.set(FIXED_LOOK.x, FIXED_LOOK.y, FIXED_LOOK.z);
+    this.camera.fov = this.mode === 'chase' ? CHASE_FOV : FIXED_FOV;
+    this.camera.updateProjectionMatrix();
   }
 
   #placeFood() {
@@ -300,7 +370,9 @@ export default class Snake3D extends BaseGame {
     }
     if (!ix && !iy) return null;
 
-    const yaw = this.camYaw;
+    // Fixed mode reads input against the world axes rather than the live yaw,
+    // so a camera still gliding back into place cannot skew a turn.
+    const yaw = this.mode === 'chase' ? this.camYaw : 0;
     const sin = Math.sin(yaw);
     const cos = Math.cos(yaw);
 
@@ -398,9 +470,10 @@ export default class Snake3D extends BaseGame {
 
     const length = this.cells.length + this.pendingGrowth;
     const speedBonus = Math.round((0.2 - this.stepInterval) * 200);
-    this.addScore(10 + Math.max(0, speedBonus));
+    const multiplier = this.mode === 'chase' ? CHASE_MULTIPLIER : 1;
+    this.addScore(Math.round((10 + Math.max(0, speedBonus)) * multiplier));
     this.host.setSecondary(length);
-    this.meta = { length };
+    this.meta = { length, mode: this.mode };
 
     // The snake speeds up as it grows, down to a floor that stays playable.
     this.stepInterval = Math.max(0.075, 0.19 - length * 0.0032);
@@ -421,7 +494,7 @@ export default class Snake3D extends BaseGame {
     if (this.dying) return;
     this.dying = true;
     this.deathTimer = 1.15;
-    this.meta = { length: this.cells.length };
+    this.meta = { length: this.cells.length, mode: this.mode };
     this.play('die');
 
     const at = this.#worldOf(
@@ -485,13 +558,17 @@ export default class Snake3D extends BaseGame {
 
   /* =============================================================== camera */
 
-  #desiredCameraPosition() {
-    const head = this.#worldOf(this.cells[0], 0);
-    // Pull back and climb as the snake gets longer, so the arena stays legible.
+  #desiredCameraPosition(out = new THREE.Vector3()) {
+    // Fixed: one vantage point that frames the whole arena, and never moves.
+    if (this.mode !== 'chase') return out.set(FIXED_EYE.x, FIXED_EYE.y, FIXED_EYE.z);
+
+    // Chase: ride behind the head, pulling back and climbing as the snake
+    // grows so the arena stays legible at length.
+    const head = this.#worldOf(this.cells[0], 0, this.scratchB);
     const growth = Math.min(1, this.cells.length / 45);
     const distance = 8.5 + growth * 6;
     const height = 8 + growth * 5.5;
-    return new THREE.Vector3(
+    return out.set(
       head.x + Math.sin(this.camYaw) * distance,
       height,
       head.z + Math.cos(this.camYaw) * distance,
@@ -499,8 +576,10 @@ export default class Snake3D extends BaseGame {
   }
 
   #updateCamera(dt, alpha) {
+    // Chase follows the heading; fixed settles the yaw back to zero, which is
+    // what keeps the input frame — derived from camYaw — on the world axes.
     const delta = DIRECTIONS[this.direction];
-    const targetYaw = Math.atan2(-delta.x, -delta.z);
+    const targetYaw = this.mode === 'chase' ? Math.atan2(-delta.x, -delta.z) : 0;
 
     // Shortest-path yaw interpolation, so a left turn never spins the long way.
     let diff = targetYaw - this.camYaw;
@@ -508,12 +587,23 @@ export default class Snake3D extends BaseGame {
     while (diff < -Math.PI) diff += Math.PI * 2;
     this.camYaw += diff * Math.min(1, dt * 3.4);
 
-    const desired = this.#desiredCameraPosition();
+    const desired = this.#desiredCameraPosition(this.scratchA);
     this.camera.position.lerp(desired, Math.min(1, dt * 4.5));
 
-    const head = this.#interpolatedSegment(0, alpha, this.scratchC);
-    head.y += 0.6;
-    this.cameraTarget.lerp(head, Math.min(1, dt * 6));
+    const targetFov = this.mode === 'chase' ? CHASE_FOV : FIXED_FOV;
+    if (Math.abs(this.camera.fov - targetFov) > 0.02) {
+      this.camera.fov += (targetFov - this.camera.fov) * Math.min(1, dt * 4);
+      this.camera.updateProjectionMatrix();
+    }
+
+    if (this.mode === 'chase') {
+      const head = this.#interpolatedSegment(0, alpha, this.scratchC);
+      head.y += 0.6;
+      this.cameraTarget.lerp(head, Math.min(1, dt * 6));
+    } else {
+      this.scratchC.set(FIXED_LOOK.x, FIXED_LOOK.y, FIXED_LOOK.z);
+      this.cameraTarget.lerp(this.scratchC, Math.min(1, dt * 4));
+    }
     this.camera.lookAt(this.cameraTarget);
 
     if (this.dying) {

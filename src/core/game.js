@@ -10,6 +10,7 @@
 
 import { Particles, Popups, Shake, rng } from './fx.js';
 import { sfx } from './audio.js';
+import { settings } from './settings.js';
 
 export class BaseGame {
   /** Leaderboard key — must match an id in shared/catalog.js. */
@@ -37,6 +38,21 @@ export class BaseGame {
   }
   /** Shown under the score. Games may override per-run. */
   static hudLabels = { score: 'Score', secondary: 'Level' };
+
+  /**
+   * Choices the player can make about this cabinet, shown as a segmented
+   * control in the play bar and remembered per game. Each entry is:
+   *
+   *   { id, label, choices: [{ value, label, hint }], default }
+   *
+   * Read the current value with `this.option(id)`. Implement
+   * `onOptionChange(id, value)` and return true to apply a change without
+   * restarting the run; return false (or omit it) and the host restarts.
+   *
+   * @type {Array<{id: string, label: string, default: string,
+   *   choices: Array<{value: string, label: string, hint?: string}>}>}
+   */
+  static options = [];
 
   /** @param {import('../ui/play.js').PlayHost} host */
   constructor(host) {
@@ -74,6 +90,12 @@ export class BaseGame {
 
   /** Release timers, WebGL resources, listeners. */
   teardown() {}
+
+  /** The player's current choice for one of this cabinet's options. */
+  option(id) {
+    const def = this.constructor.options.find((o) => o.id === id);
+    return settings.getOption(this.constructor.id, id, def?.default);
+  }
 
   /* --------------------------------------------------------------- utils */
 

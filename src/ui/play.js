@@ -97,10 +97,12 @@ export class PlayHost {
       'div.play',
       h(
         'div.play__bar',
-        h('a.play__back', { href: '/', onclick: () => sfx.play('back') }, icon('back', { size: 13 }), 'Arcade'),
+        h('a.play__back', { href: '/', onclick: () => sfx.play('back') },
+          icon('back', { size: 13 }), h('span', 'Arcade')),
         h('div.play__ident', h('h1', def.title), h('span', `${def.codename} · ${def.year}`)),
         h(
           'div.play__bar-tools',
+          (this.optionsBar = h('div.play__options')),
           h('button.icon-btn', {
             type: 'button', 'aria-label': 'Pause', title: 'Pause (P)',
             onclick: () => this.togglePause(),
@@ -109,7 +111,7 @@ export class PlayHost {
             type: 'button', 'aria-label': 'Restart', title: 'Restart (R)',
             onclick: () => this.restart(),
           }, icon('restart', { size: 18 })),
-          h('button.icon-btn', {
+          h('button.icon-btn.icon-btn--wide-only', {
             type: 'button', 'aria-label': 'Fullscreen', title: 'Fullscreen',
             onclick: () => this.#toggleFullscreen(),
           }, icon('expand', { size: 18 })),
@@ -176,6 +178,7 @@ export class PlayHost {
 
     this.canvas.classList.toggle('smooth', GameClass.smooth !== false);
     this.touchLayer.dataset.scheme = GameClass.touch ?? 'dpad';
+    this.#renderOptions();
 
     // A fresh Input per run so no key is stuck down from the last one.
     this.input?.destroy();
@@ -296,6 +299,60 @@ export class PlayHost {
       if (this.ctx) {
         this.ctx.imageSmoothingEnabled = GameClass.smooth !== false;
       }
+    }
+  }
+
+  /* -------------------------------------------------------------- options */
+
+  /**
+   * Cabinet options as a segmented control. A game that implements
+   * `onOptionChange` and returns true handles the change live; anything else
+   * restarts the run, because most options change how a game is set up.
+   */
+  #renderOptions() {
+    const defs = this.GameClass.options ?? [];
+    fill(this.optionsBar);
+    this.optionsBar.hidden = defs.length === 0;
+
+    for (const def of defs) {
+      const current = settings.getOption(this.def.id, def.id, def.default);
+
+      const buttons = def.choices.map((choice) =>
+        h(
+          `button.play__opt-btn${choice.value === current ? '.is-on' : ''}`,
+          {
+            type: 'button',
+            title: choice.hint ?? choice.label,
+            'aria-pressed': String(choice.value === current),
+            onclick: () => this.#chooseOption(def, choice.value),
+          },
+          choice.label,
+        ),
+      );
+
+      this.optionsBar.append(
+        h(
+          'div.play__opt',
+          { role: 'group', 'aria-label': def.label },
+          h('span.play__opt-label', def.label),
+          ...buttons,
+        ),
+      );
+    }
+  }
+
+  #chooseOption(def, value) {
+    if (settings.getOption(this.def.id, def.id, def.default) === value) return;
+    settings.setOption(this.def.id, def.id, value);
+    sfx.play('toggle');
+
+    const handled = this.game?.onOptionChange?.(def.id, value) === true;
+    if (handled) {
+      this.#renderOptions();
+      const choice = def.choices.find((c) => c.value === value);
+      if (choice?.hint) toast(choice.hint);
+    } else {
+      this.restart();
     }
   }
 

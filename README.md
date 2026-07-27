@@ -18,7 +18,7 @@ npm run preview      # production build, served by the real server on :8080
 
 | Game | What it is | Worth knowing |
 | --- | --- | --- |
-| **Snake 3D** | The headliner. A neon serpent on a floating arena. | Chase camera that banks into turns and pulls back as you grow. Steering is camera-relative, so "left" always means left on screen. The body is one `InstancedMesh` — a 200-segment snake is a single draw call. |
+| **Snake 3D** | The headliner. A neon serpent on a floating arena. | Two cameras. **Fixed** (default) holds one angle over the whole arena, so left is west and up is north, always. **Chase** rides behind the head and banks into turns — a better view, but steering becomes relative to it, which is harder to hold in your head, so it scores 1.3x. The body is one `InstancedMesh` — a 200-segment snake is a single draw call. |
 | **Chomp** | Maze chase. | The real 28×31 maze (244 dots, verified) and the original ghost AI: Blinky targets you, Pinky aims four tiles ahead, Inky doubles the vector from Blinky through a point in front of you, Clyde bolts for his corner inside eight tiles. Pinky's up-direction targeting bug is reproduced on purpose. |
 | **Blockfall** | Stacker. | Seven-bag randomiser, full SRS wall-kick tables, hold slot, ghost piece, lock delay with a 15-move reset cap, back-to-back and combo scoring. |
 | **Invaders** | Shoot the descending grid. | The formation speeds up as you thin it out — the 1978 hardware limitation, reproduced deliberately. Destructible shields erode in clusters; only the front alien in a column can fire. |
@@ -31,7 +31,7 @@ And a quieter corner, all click-driven:
 
 | Game | What it is | Worth knowing |
 | --- | --- | --- |
-| **Solitaire** | Klondike, draw three. | Click-to-move rather than drag: a click lifts a card *and* the run below it, a second click places it, a double-click sends it home. Full undo stack. |
+| **Solitaire** | Klondike, draw one or three. | Click-to-move rather than drag: a click lifts a card *and* the run below it, a second click places it, a double-click sends it home. Full undo stack. Draw three is the traditional, harder game and scores 1.25x. |
 | **Lexicon** | Five letters, six guesses. | Duplicate letters are marked with the proper two-pass rule — exact positions claimed first, "present" marks handed out only from what is left over. Solve one and another arrives, so a run is a streak. |
 | **Word Search** | Ten words, eight directions. | Words cross wherever their letters agree, so the grid is genuinely tangled. The drag selection snaps to the nearest of the eight lines, so a sloppy diagonal still counts. |
 | **Bingo** | Two cards, one caller. | Nothing daubs itself. The caller quickens as the bag empties, and a fresh number is worth four times one you nearly let slip. |
@@ -72,6 +72,14 @@ rendering interpolates between them, so a 144 Hz monitor plays identically to a
 **One input surface over four.** Keyboard, gamepad, an on-screen d-pad, and raw
 touch all feed the same `held` / `pressed` interface, with edge-triggered
 presses cleared once per tick so a single keypress can never fire twice.
+
+**Cabinet options.** A game can declare `static options` and the host renders a
+segmented control in the play bar, remembers the choice per game, and either
+applies it live (if the game implements `onOptionChange`) or restarts the run.
+Snake 3D uses it for the camera, Solitaire for the draw count. Where an option
+changes the difficulty rather than just the presentation, the harder setting
+carries a score multiplier and the mode is recorded on the leaderboard entry,
+so a board never silently mixes two different games.
 
 **Offline is real.** A Vite plugin walks the actual build output and writes the
 service worker with a precache manifest covering every hashed chunk — including

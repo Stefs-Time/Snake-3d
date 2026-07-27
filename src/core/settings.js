@@ -18,6 +18,8 @@ const DEFAULTS = {
   best: {},
   /** @type {Record<string, number>} */
   plays: {},
+  /** Per-cabinet option choices: gameId -> { optionId: value }. */
+  options: {},
 };
 
 function read() {
@@ -73,6 +75,20 @@ export const settings = {
 
   bestFor(gameId) {
     return state.best[gameId]?.score ?? 0;
+  },
+
+  /* --- per-cabinet options, e.g. Snake 3D's camera --- */
+
+  getOption(gameId, optionId, fallback) {
+    return state.options?.[gameId]?.[optionId] ?? fallback;
+  },
+
+  setOption(gameId, optionId, value) {
+    state.options ??= {};
+    (state.options[gameId] ??= {})[optionId] = value;
+    persist();
+    emit('options', state.options);
+    return value;
   },
 
   totalPlays() {

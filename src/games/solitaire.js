@@ -1,7 +1,13 @@
 import { BaseGame } from '../core/game.js';
 
 /**
- * SOLITAIRE — Klondike, draw three
+ * SOLITAIRE — Klondike
+ *
+ * Draw one or draw three, chosen from the control in the play bar. Draw three
+ * is the traditional game and only every third card of the stock is reachable
+ * without cycling, which is most of what makes a deal hard; draw one is far
+ * more forgiving and most deals are winnable. Because that gap is real, draw
+ * three carries a 1.25x multiplier on the points it is easy to farm.
  *
  * Interaction is click-to-move rather than drag-and-drop, which is both easier
  * on a touchscreen and faster once you trust it: click a card to pick it up
@@ -45,14 +51,62 @@ export default class Solitaire extends BaseGame {
   static hudPad = { top: 34, bottom: 24 };
   static hudLabels = { score: 'Score', secondary: 'Moves' };
 
+  static options = [
+    {
+      id: 'draw',
+      label: 'Draw',
+      default: 'three',
+      choices: [
+        {
+          value: 'one',
+          label: 'One',
+          hint: 'Draw one card at a time — every card in the stock is reachable.',
+        },
+        {
+          value: 'three',
+          label: 'Three',
+          hint: 'Draw three at a time, the traditional game. Scores 1.25x.',
+        },
+      ],
+    },
+  ];
+
   setup() {
     this.host.setSecondaryLabel('Moves');
-    this.host.setHint('Click a card, then its destination · U to undo');
     this.setLives(1);
+    this.drawCount = this.option('draw') === 'one' ? 1 : 3;
+    this.#applyDrawHint();
 
     this.#deal();
     this.banner('Klondike');
     this.play('ready');
+  }
+
+  /* ================================================================ modes */
+
+  /**
+   * Switching draw mode applies to the next turn of the stock rather than
+   * restarting — the deal itself is identical either way, so there is nothing
+   * to rebuild and no reason to take the player's board away.
+   */
+  onOptionChange(id, value) {
+    if (id !== 'draw') return false;
+    this.drawCount = value === 'one' ? 1 : 3;
+    this.#applyDrawHint();
+    return true;
+  }
+
+  #applyDrawHint() {
+    this.host.setHint(
+      this.drawCount === 1
+        ? 'Draw one · click a card, then its destination · U to undo'
+        : 'Draw three · click a card, then its destination · U to undo',
+    );
+  }
+
+  /** Draw three is the harder game, so the points it yields are worth more. */
+  get #multiplier() {
+    return this.drawCount === 3 ? 1.25 : 1;
   }
 
   /* ================================================================= deal */
@@ -164,6 +218,11 @@ export default class Solitaire extends BaseGame {
     return [];
   }
 
+  /** Every positive award goes through here so the multiplier applies once. */
+  #award(points, at) {
+    this.addScore(Math.round(points * this.#multiplier), at);
+  }
+
   /** Turning over a newly exposed tableau card is worth points. */
   #revealAfterMove(from) {
     if (from.zone !== 'tableau') return;
@@ -171,7 +230,7 @@ export default class Solitaire extends BaseGame {
     const top = pile[pile.length - 1];
     if (top && !top.faceUp) {
       top.faceUp = true;
-      this.addScore(5);
+      this.#award(5);
       this.play('blip');
     }
   }
@@ -187,7 +246,7 @@ export default class Solitaire extends BaseGame {
       this.#snapshot();
       this.#removeGrabbed(from, index);
       this.foundations[to.suit].push(lead);
-      this.addScore(from.zone === 'tableau' ? 10 : 12);
+      this.#award(from.zone === 'tableau' ? 10 : 12);
       this.play('powerup');
     } else if (to.zone === 'tableau') {
       if (!this.#canStackOnTableau(lead, this.tableau[to.col])) return false;
@@ -229,7 +288,7 @@ export default class Solitaire extends BaseGame {
       this.addScore(-20);
       this.play('back');
     } else {
-      for (let i = 0; i < 3 && this.stock.length; i++) {
+      for (let i = 0; i < this.drawCount && this.stock.length; i++) {
         const card = this.stock.pop();
         card.faceUp = true;
         this.waste.push(card);
@@ -243,10 +302,10 @@ export default class Solitaire extends BaseGame {
 
   #checkWin() {
     const total = Object.values(this.foundations).reduce((n, p) => n + p.length, 0);
-    this.meta = { moves: this.moves, foundation: total };
+    this.meta = { moves: this.moves, foundation: total, draw: this.drawCount };
     if (total < 52 || this.won) return;
     this.won = true;
-    this.addScore(1000);
+    this.#award(1000);
     this.banner('Solved!');
     this.play('highscore');
     this.end();

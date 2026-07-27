@@ -126,3 +126,38 @@ one piece of engine work first.
   and advance a full tile into it. Reversals are validated, and `#move` now
   refuses to advance off a tile centre into anything it cannot enter.
 - Chomp: blank padding outside the maze was walkable; it is now solid.
+
+
+---
+
+## Wave three — cabinet options
+
+Requested after wave two: Snake 3D's camera pivoted with the snake, which made
+"left" mean a different direction from one moment to the next. Rather than
+removing the chase camera, it became a choice — and that needed a general
+mechanism, since Solitaire wanted one too.
+
+**Engine**
+
+- `BaseGame.options`: a game declares its choices, the host renders a segmented
+  control in the play bar and remembers each choice per game in `localStorage`.
+- A game implementing `onOptionChange(id, value)` and returning true applies a
+  change live; anything else restarts the run.
+
+**Snake 3D**
+
+- **Fixed** (now the default) — one vantage point over the whole arena, and the
+  yaw settles to zero so input is read against the world axes. Left is west.
+- **Chase** — the original banking follow-cam with relative steering. Worth
+  1.3x, since the handicap is real.
+- Fixed frames the arena by narrowing the lens to 40 degrees rather than
+  dollying in, which would have steepened the angle and flattened the 3D read.
+  The two focal lengths are lerped, so switching modes reads as a zoom.
+
+**Solitaire**
+
+- **Draw one** — every card in the stock is reachable.
+- **Draw three** (default) — the traditional game, 1.25x on every award.
+
+Both games record the chosen mode in the score's metadata, so the leaderboard
+shows what a run was played under instead of silently mixing two difficulties.
