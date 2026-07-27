@@ -4,6 +4,11 @@ A Railway-hosted, install-anywhere **PWA arcade**. One cabinet, many classics.
 Offline-first, gamepad-aware, touch-friendly, with a server-backed global
 leaderboard using real 3-letter arcade initials.
 
+> This is the original plan, kept as written. It describes the first eight
+> games and the decisions behind them; everything built since is in
+> [CHANGELOG.md](CHANGELOG.md), and the contract a new cabinet implements is in
+> [docs/adding-a-game.md](docs/adding-a-game.md).
+
 ---
 
 ## 1. Product shape
@@ -82,136 +87,12 @@ stored — three characters and a number.
 
 ## 5. Definition of done
 
-- [ ] `npm run build && npm start` serves the whole arcade on `$PORT`
-- [ ] Installable PWA (manifest + SW + maskable icons), passes offline reload
-- [ ] All 8 games playable with keyboard, gamepad, and touch
-- [ ] Global leaderboard writes and reads through the API
-- [ ] Zero binary assets committed; icons generated at build time
-- [ ] Deploys to Railway from a clean clone with no manual steps
+All met at the end of wave one, and still enforced by `npm run smoke`.
 
+- [x] `npm run build && npm start` serves the whole arcade on `$PORT`
+- [x] Installable PWA (manifest + SW + maskable icons), passes offline reload
+- [x] All 8 games playable with keyboard, gamepad, and touch
+- [x] Global leaderboard writes and reads through the API
+- [x] Zero binary assets committed; icons generated at build time
+- [x] Deploys to Railway from a clean clone with no manual steps
 
----
-
-## Wave two — the quiet corner
-
-Added after the first eight shipped, on request: card, word and board games to
-sit alongside the arcade cabinets. All seven are pointer-driven, which needed
-one piece of engine work first.
-
-| # | Game | Codename | Core loop |
-| --- | --- | --- | --- |
-| 9 | **Solitaire** | `solitaire` | Klondike draw-three, click-to-move, full undo |
-| 10 | **Lexicon** | `lexicon` | Five-letter word guessing, streak-based scoring |
-| 11 | **Word Search** | `wordsearch` | Themed 12x12 grids, drag to claim, against a clock |
-| 12 | **Bingo** | `bingo` | Two cards, an accelerating caller, manual daubing |
-| 13 | **Minefield** | `minefield` | Minesweeper with a safe first click and chording |
-| 14 | **Memory** | `memory` | Pairs with combo scoring and a per-round clock |
-| 15 | **Simon** | `simon` | Growing tone sequence, three strikes |
-
-**Engine additions**
-
-- A `point` touch scheme that hides the overlay d-pad and fires an action on
-  pointer-down, since these games are played by tapping the board itself.
-- Pointer press/release edges on `Input`, cleared per tick like key presses, so
-  a click is handled exactly once however many simulation steps a frame runs.
-- `BaseGame.mouse`, giving pointer coordinates already translated into game
-  space with the HUD band subtracted, plus `hits()` and `roundRect()`.
-
-**Also fixed in this pass**
-
-- Chomp: an actor whose x drifted negative in the tunnel desynchronised from
-  the tile it stood on, and would then glide across the whole maze without a
-  single wall check. Positions are now normalised before any tile maths.
-- Chomp: an instant reversal could flip direction mid-loop with no wall check
-  and advance a full tile into it. Reversals are validated, and `#move` now
-  refuses to advance off a tile centre into anything it cannot enter.
-- Chomp: blank padding outside the maze was walkable; it is now solid.
-
-
----
-
-## Wave three — cabinet options
-
-Requested after wave two: Snake 3D's camera pivoted with the snake, which made
-"left" mean a different direction from one moment to the next. Rather than
-removing the chase camera, it became a choice — and that needed a general
-mechanism, since Solitaire wanted one too.
-
-**Engine**
-
-- `BaseGame.options`: a game declares its choices, the host renders a segmented
-  control in the play bar and remembers each choice per game in `localStorage`.
-- A game implementing `onOptionChange(id, value)` and returning true applies a
-  change live; anything else restarts the run.
-
-**Snake 3D**
-
-- **Fixed** (now the default) — one vantage point over the whole arena, and the
-  yaw settles to zero so input is read against the world axes. Left is west.
-- **Chase** — the original banking follow-cam with relative steering. Worth
-  1.3x, since the handicap is real.
-- Fixed frames the arena by narrowing the lens to 40 degrees rather than
-  dollying in, which would have steepened the angle and flattened the 3D read.
-  The two focal lengths are lerped, so switching modes reads as a zoom.
-
-**Solitaire**
-
-- **Draw one** — every card in the stock is reachable.
-- **Draw three** (default) — the traditional game, 1.25x on every award.
-
-Both games record the chosen mode in the score's metadata, so the leaderboard
-shows what a run was played under instead of silently mixing two difficulties.
-
-
----
-
-## Wave five — pen and paper
-
-Requested: more quick-to-learn old-school games, sudoku and tic tac toe named.
-The biggest gap in the arcade was head-to-head play — twenty-two cabinets and
-not one opponent — so three of the seven are board games with a real search
-behind them.
-
-| # | Game | Codename | Core loop |
-| --- | --- | --- | --- |
-| 16 | **Tic Tac Toe** | `tictactoe` | Minimax that errs on purpose, less each match |
-| 17 | **Connect Four** | `connectfour` | Alpha-beta, depth three to seven |
-| 18 | **Reversi** | `reversi` | Positional search: corners, mobility, then material |
-| 19 | **Sudoku** | `sudoku` | Generated with a uniqueness check on every dug hole |
-| 20 | **Lights Out** | `lightsout` | Generated from solved, so always solvable, with a par |
-| 21 | **Fifteen** | `fifteen` | Shuffled by legal moves, never an impossible board |
-| 22 | **Hangman** | `hangman` | Categorised words, allowance shrinks with the streak |
-
-**Hub**
-
-Twenty-two cabinets is too many to scan, so the wall gained genre filters
-driven by the catalog. The genres were also consolidated from twelve to six —
-half of them had been singletons, which is a filter that filters nothing.
-Switching genre disposes the old previews and attaches new ones rather than
-hiding cards, so off-screen animations stop costing anything.
-
-
----
-
-## Wave six — hold the line, and swap tiles
-
-Two requests, one batch: tower-defense-like games, and tile-swap games.
-
-| # | Game | Codename | Core loop |
-| --- | --- | --- | --- |
-| 23 | **Bulwark** | `bulwark` | Grid tower defense: build, upgrade, sell wave bounties |
-| 24 | **Bastion** | `bastion` | Missile Command: per-battery ammunition is the constraint |
-| 25 | **Cascade** | `cascade` | Match three with cascading chains and two specials |
-
-**Notes**
-
-- Bulwark tracks enemies by distance along the road rather than by position.
-  That one choice makes the only correct targeting rule — furthest along —
-  a `max()` rather than a pathfinding problem, and it makes the road's shape
-  free to change without touching the combat code.
-- Bastion's design pressure is entirely in ammunition being per battery
-  rather than pooled. Defending one flank drains it, and the next shot has to
-  come the long way.
-- Cascade rejects a swap that makes nothing, so the board has to be searched
-  for a match before the move is committed. A deadlocked board reshuffles.
-- The catalog gained a Defense genre; the hub filter picks it up for free.

@@ -29,12 +29,21 @@ export function renderAbout() {
         h('div', h('kbd', 'P'), ' or ', h('kbd', 'Esc'), 'Pause'),
         h('div', h('kbd', 'R'), 'Restart the run'),
         h('div', h('kbd', 'M'), 'Mute'),
+        h('div', h('kbd', '?'), 'How to play this game'),
+      ),
+      h(
+        'p',
+        'Every cabinet explains itself the first time you walk up to it — what the game is, ' +
+          'what each control does, what the options will change, and what the score is counting. ',
+        h('kbd', '?'),
+        ' brings that card back at any point.',
       ),
       h(
         'p',
         'A connected gamepad is picked up automatically — d-pad and left stick to move, ' +
-          'A to act, Start to pause. On a touchscreen you get an on-screen pad, and the ' +
-          'puzzle games take swipes.',
+          'A to act, Start to pause. On a touchscreen you get a pad where the game needs ' +
+          'directions and named buttons where it needs actions, and the control hints are ' +
+          'rewritten for touch so you are never told to press a key you do not have.',
       ),
 
       h('h3', 'The lineup'),
@@ -48,7 +57,7 @@ export function renderAbout() {
       h('h3', 'How it is built'),
       h(
         'ul',
-        h('li', 'No UI framework. The interface is about 60 lines of hyperscript and a stylesheet.'),
+        h('li', 'No UI framework. The interface is a ~120 line hyperscript helper and five stylesheets.'),
         h('li', h('code', 'Three.js'), ' powers Snake 3D and is code-split, so the 2D games never download it.'),
         h('li', 'Every sound effect is synthesized with the Web Audio API at runtime — there is not one audio file in the repository.'),
         h('li', 'The app icons are generated at build time by a small PNG encoder, so no binary assets are committed either.'),

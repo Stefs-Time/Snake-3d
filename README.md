@@ -16,48 +16,48 @@ npm run preview      # production build, served by the real server on :8080
 
 ## The lineup
 
-| Game | What it is | Worth knowing |
-| --- | --- | --- |
-| **Snake 3D** | The headliner. A neon serpent on a floating arena. | Two cameras. **Fixed** (default) holds one angle over the whole arena, so left is west and up is north, always. **Chase** rides behind the head and banks into turns — a better view, but steering becomes relative to it, which is harder to hold in your head, so it scores 1.3x. The body is one `InstancedMesh` — a 200-segment snake is a single draw call. |
-| **Chomp** | Maze chase. | The real 28×31 maze (244 dots, verified) and the original ghost AI: Blinky targets you, Pinky aims four tiles ahead, Inky doubles the vector from Blinky through a point in front of you, Clyde bolts for his corner inside eight tiles. Pinky's up-direction targeting bug is reproduced on purpose. |
-| **Blockfall** | Stacker. | Seven-bag randomiser, full SRS wall-kick tables, hold slot, ghost piece, lock delay with a 15-move reset cap, back-to-back and combo scoring. |
-| **Invaders** | Shoot the descending grid. | The formation speeds up as you thin it out — the 1978 hardware limitation, reproduced deliberately. Destructible shields erode in clusters; only the front alien in a column can fire. |
-| **Bricks** | One ball against a wall. | Contact point on the paddle sets the exit angle, so aiming beats reacting. Multi-ball, laser, wide and slow drops. |
-| **Vector** | Splitting rock field. | Momentum with no brakes, screen wrap, a saucer that leads its shots, and hyperspace with the classic one-in-eight chance of a bad jump. |
-| **Paddles** | First to eleven. | The opponent's reaction delay and aim error shrink as the rally grows, so the rally *is* the difficulty curve. Paddle motion adds spin. |
-| **2048** | Merge to 2048. | Slide resolved as compact-merge-compact, with movement recorded so tiles animate into place. One undo. |
+| Game | Genre | What it is | Worth knowing |
+| --- | --- | --- | --- |
+| **Snake 3D** | Arcade | The headliner. A neon serpent on a floating arena. | Two cameras. **Fixed** (default) holds one angle over the whole arena, so left is west and up is north, always. **Chase** rides behind the head and banks into turns — a better view, but steering becomes relative to it, which is harder to hold in your head, so it scores 1.3x. The body is one `InstancedMesh` — a 200-segment snake is a single draw call. |
+| **Chomp** | Arcade | Maze chase. | The real 28×31 maze (244 dots, verified) and the original ghost AI: Blinky targets you, Pinky aims four tiles ahead, Inky doubles the vector from Blinky through a point in front of you, Clyde bolts for his corner inside eight tiles. Pinky's up-direction targeting bug is reproduced on purpose. |
+| **Blockfall** | Puzzle | Stacker. | Seven-bag randomiser, full SRS wall-kick tables, hold slot, ghost piece, lock delay with a 15-move reset cap, back-to-back and combo scoring. |
+| **Invaders** | Arcade | Shoot the descending grid. | The formation speeds up as you thin it out — the 1978 hardware limitation, reproduced deliberately. Destructible shields erode in clusters; only the front alien in a column can fire. |
+| **Bricks** | Arcade | One ball against a wall. | Contact point on the paddle sets the exit angle, so aiming beats reacting. Multi-ball, laser, wide and slow drops. |
+| **Vector** | Arcade | Splitting rock field. | Momentum with no brakes, screen wrap, a saucer that leads its shots, and hyperspace with the classic one-in-eight chance of a bad jump. |
+| **Paddles** | Arcade | First to eleven. | The opponent's reaction delay and aim error shrink as the rally grows, so the rally *is* the difficulty curve. Paddle motion adds spin. |
+| **2048** | Puzzle | Merge to 2048. | Slide resolved as compact-merge-compact, with movement recorded so tiles animate into place. One undo. |
 
 And a quieter corner, all click-driven:
 
-| Game | What it is | Worth knowing |
-| --- | --- | --- |
-| **Solitaire** | Klondike, draw one or three. | Click-to-move rather than drag: a click lifts a card *and* the run below it, a second click places it, a double-click sends it home. Full undo stack. Draw three is the traditional, harder game and scores 1.25x. |
-| **Lexicon** | Five letters, six guesses. | Duplicate letters are marked with the proper two-pass rule — exact positions claimed first, "present" marks handed out only from what is left over. Solve one and another arrives, so a run is a streak. |
-| **Word Search** | Ten words, eight directions. | Words cross wherever their letters agree, so the grid is genuinely tangled. The drag selection snaps to the nearest of the eight lines, so a sloppy diagonal still counts. |
-| **Bingo** | Two cards, one caller. | Nothing daubs itself. The caller quickens as the bag empties, and a fresh number is worth four times one you nearly let slip. |
-| **Minefield** | Minesweeper. | The first click is always safe — mines are laid *after* it, around the opening tile. Iterative flood fill, and chording on a satisfied number. |
-| **Memory** | Pairs. | Twelve symbols drawn from paths rather than a font. Consecutive matches build a combo; clearing a board with no wasted flip pays a large bonus. |
-| **Simon** | Watch, then repeat. | The original four tones, so past about six steps you stop memorising lights and start memorising a melody. Playback quickens as the sequence grows. |
+| Game | Genre | What it is | Worth knowing |
+| --- | --- | --- | --- |
+| **Solitaire** | Table | Klondike, draw one or three. | Click-to-move rather than drag: a click lifts a card *and* the run below it, a second click places it, a double-click sends it home. Full undo stack. Draw three is the traditional, harder game and scores 1.25x. |
+| **Lexicon** | Word | Five letters, six guesses. | Duplicate letters are marked with the proper two-pass rule — exact positions claimed first, "present" marks handed out only from what is left over. Solve one and another arrives, so a run is a streak. |
+| **Word Search** | Word | Ten words, eight directions. | Words cross wherever their letters agree, so the grid is genuinely tangled. The drag selection snaps to the nearest of the eight lines, so a sloppy diagonal still counts. |
+| **Bingo** | Table | Two cards, one caller. | Nothing daubs itself. The caller quickens as the bag empties, and a fresh number is worth four times one you nearly let slip. |
+| **Minefield** | Puzzle | Minesweeper. | The first click is always safe — mines are laid *after* it, around the opening tile. Iterative flood fill, and chording on a satisfied number. |
+| **Memory** | Memory | Pairs. | Twelve symbols drawn from paths rather than a font. Consecutive matches build a combo; clearing a board with no wasted flip pays a large bonus. |
+| **Simon** | Memory | Watch, then repeat. | The original four tones, so past about six steps you stop memorising lights and start memorising a melody. Playback quickens as the sequence grows. |
 
 And the pen-and-paper corner, three of them against an opponent that searches:
 
-| Game | What it is | Worth knowing |
-| --- | --- | --- |
-| **Tic Tac Toe** | Solved game, imperfect opponent. | Full minimax, so it can never lose — which would be unplayable, so it *deliberately* takes a worse move now and then. That probability shrinks each match, making a run a ladder from winnable to draw-at-best. |
-| **Connect Four** | Four in a row. | Minimax with alpha-beta, columns tried centre-out so the pruning bites. Difficulty is search depth, three plies to seven — a shallow search genuinely misses threats, so it never has to play badly on purpose. |
-| **Reversi** | Bracket and flip. | Disc count barely predicts the winner, so the machine plays position instead: corners are gold, the squares beside them are poison, and mobility outweighs material until the endgame. Legal moves are shown with the number each would flip. |
-| **Sudoku** | Generated, never shipped. | Fill a grid by backtracking, then dig holes and check after each one that exactly one solution survives — a puzzle with two answers can only be guessed at, and you can always tell. Pencil notes and a per-digit remaining count. |
-| **Lights Out** | Press one, five change. | Order never matters and pressing twice undoes it, so the puzzle is choosing a *set*, not a sequence. Boards are generated by pressing from solved, which guarantees solvability and hands you a par to beat. |
-| **Fifteen** | Sliding tiles. | Half of all arrangements are unsolvable — the ones Sam Loyd offered a prize for — so the shuffle is legal moves from the finished board, which cannot reach that half. |
-| **Hangman** | Six wrong and it is done. | The category is given, because without it a long word with no vowels showing is not a puzzle. Every third solve takes a limb off your allowance, so a streak is played on a shortening rope. |
+| Game | Genre | What it is | Worth knowing |
+| --- | --- | --- | --- |
+| **Tic Tac Toe** | Board | Solved game, imperfect opponent. | Full minimax, so it can never lose — which would be unplayable, so it *deliberately* takes a worse move now and then. That probability shrinks each match, making a run a ladder from winnable to draw-at-best. |
+| **Connect Four** | Board | Four in a row. | Minimax with alpha-beta, columns tried centre-out so the pruning bites. Difficulty is search depth, three plies to seven — a shallow search genuinely misses threats, so it never has to play badly on purpose. |
+| **Reversi** | Board | Bracket and flip. | Disc count barely predicts the winner, so the machine plays position instead: corners are gold, the squares beside them are poison, and mobility outweighs material until the endgame. Legal moves are shown with the number each would flip. |
+| **Sudoku** | Puzzle | Generated, never shipped. | Fill a grid by backtracking, then dig holes and check after each one that exactly one solution survives — a puzzle with two answers can only be guessed at, and you can always tell. Pencil notes and a per-digit remaining count. |
+| **Lights Out** | Puzzle | Press one, five change. | Order never matters and pressing twice undoes it, so the puzzle is choosing a *set*, not a sequence. Boards are generated by pressing from solved, which guarantees solvability and hands you a par to beat. |
+| **Fifteen** | Puzzle | Sliding tiles. | Half of all arrangements are unsolvable — the ones Sam Loyd offered a prize for — so the shuffle is legal moves from the finished board, which cannot reach that half. |
+| **Hangman** | Word | Six wrong and it is done. | The category is given, because without it a long word with no vowels showing is not a puzzle. Every third solve takes a limb off your allowance, so a streak is played on a shortening rope. |
 
 And three about holding something:
 
-| Game | What it is | Worth knowing |
-| --- | --- | --- |
-| **Bulwark** | Tower defense. | Enemies are tracked by *distance along the path*, not position, which turns "shoot the one closest to the exit" — the only correct targeting rule — into a single `max()`. Four towers, two upgrades each. Calling a wave early pays a bounty for the peace you sold, so the real decision is how much time to sell. |
-| **Bastion** | Missile Command. | The whole game is the word *nearest*: ammunition is per battery, so the flank you have been defending runs dry first and the shot you need becomes a long arc from the wrong side. Blasts chain. Spare shells pay a bonus, which is the reason not to panic-fire. |
-| **Cascade** | Match three. | The chain is the game — a swap worth three is nothing, one that sets off four rounds of collapse is a level. Four in a line leaves a charged gem, five a prism, and a board with no legal swap reshuffles rather than stranding you. |
+| Game | Genre | What it is | Worth knowing |
+| --- | --- | --- | --- |
+| **Bulwark** | Defense | Tower defense. | Enemies are tracked by *distance along the path*, not position, which turns "shoot the one closest to the exit" — the only correct targeting rule — into a single `max()`. Four towers, two upgrades each. Calling a wave early pays a bounty for the peace you sold, so the real decision is how much time to sell. |
+| **Bastion** | Defense | Missile Command. | The whole game is the word *nearest*: ammunition is per battery, so the flank you have been defending runs dry first and the shot you need becomes a long arc from the wrong side. Blasts chain. Spare shells pay a bonus, which is the reason not to panic-fire. |
+| **Cascade** | Puzzle | Match three. | The chain is the game — a swap worth three is nothing, one that sets off four rounds of collapse is a level. Four in a line leaves a charged gem, five a prism, and a board with no legal swap reshuffles rather than stranding you. |
 
 ---
 
@@ -93,6 +93,19 @@ rendering interpolates between them, so a 144 Hz monitor plays identically to a
 touch all feed the same `held` / `pressed` interface, with edge-triggered
 presses cleared once per tick so a single keypress can never fire twice.
 
+**Every game explains itself.** The first time you walk up to a cabinet you get
+a card: what the game is, all three control lines, what each option will do to
+the run, and what the score is counting. It pauses the game behind it, and `?`
+brings it back at any point. The HUD hint then cycles through the control lines
+rather than showing one and hiding the rest.
+
+**The controls match the device.** Every cabinet carries a second set of control
+hints for touch, so a phone is never told to press Space. A game declares the
+on-screen buttons it actually reads and they are labelled with the verb —
+`DROP`, `HOLD`, `SERVE`, `HYPER` — because "A" and "B" tell a first-time player
+nothing. Where a mechanic has no gesture equivalent the control is drawn on the
+canvas instead: Sudoku's number pad, Minefield's flag chip, Lexicon's keyboard.
+
 **Cabinet options.** A game can declare `static options` and the host renders a
 segmented control in the play bar, remembers the choice per game, and either
 applies it live (if the game implements `onOptionChange`) or restarts the run.
@@ -108,6 +121,7 @@ each game's lazily loaded module. After one visit the whole arcade works on a
 plane, not just the pages you happened to open.
 
 ```
+docs/adding-a-game.md the BaseGame contract, end to end
 shared/catalog.js     the game catalog, imported by both client and server
 server/               express: leaderboard api + static hosting
   store.js            json file store, upgrades itself to postgres
@@ -177,10 +191,17 @@ npm start &
 npm run smoke
 ```
 
+Adding `?debug` to any `/play/:id` URL exposes the live cabinet as
+`window.__cabinet` — the running `PlayHost`, its `GameClass` and the game
+instance — which is how the smoke test reaches mechanics that random input
+cannot trigger. It is off in a normal session.
+
 `smoke.mjs` drives a real headless Chromium: it loads every route and every
 cabinet, waits for each game's chunk to boot, plays it with synthetic input,
-checks the HUD is live, round-trips a score through the API, and renders the hub
-at phone size. It fails on any console error, page error, or failed request, and
+checks the how-to-play card appears with every control line and dismisses,
+verifies the loop is genuinely still running afterwards, round-trips a score
+through the API, and drives eight cabinets at phone size asserting the
+on-screen buttons are present and correctly labelled. It fails on any console error, page error, or failed request, and
 drops a screenshot of everything into `screenshots/`.
 
 ---
@@ -191,9 +212,12 @@ Arrows or WASD to move, Space to fire or confirm, P or Esc to pause, R to
 restart, M to mute. A connected gamepad is picked up automatically. On a
 touchscreen you get an on-screen pad, and the puzzle games take swipes.
 
-The card, word and board games are click-driven and show no overlay controls at
-all — you tap the board itself, which works identically with a mouse or a
-thumb.
+On a touchscreen you get a d-pad where the game needs directions and named
+buttons where it needs actions. The card, word and board games show no overlay
+controls at all — you tap the board itself, which works identically with a
+mouse or a thumb.
+
+Press `?` in any cabinet for that game's rules and controls.
 
 ---
 
