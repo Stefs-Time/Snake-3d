@@ -1,6 +1,6 @@
 # NEON CABINET
 
-An installable arcade. Eight classics behind one front end, built to be added
+An installable arcade. Fifteen games behind one front end, built to be added
 to a home screen rather than bookmarked — it launches full screen, plays with
 no connection, and keeps a global leaderboard when it has one.
 
@@ -27,6 +27,18 @@ npm run preview      # production build, served by the real server on :8080
 | **Paddles** | First to eleven. | The opponent's reaction delay and aim error shrink as the rally grows, so the rally *is* the difficulty curve. Paddle motion adds spin. |
 | **2048** | Merge to 2048. | Slide resolved as compact-merge-compact, with movement recorded so tiles animate into place. One undo. |
 
+And a quieter corner, all click-driven:
+
+| Game | What it is | Worth knowing |
+| --- | --- | --- |
+| **Solitaire** | Klondike, draw three. | Click-to-move rather than drag: a click lifts a card *and* the run below it, a second click places it, a double-click sends it home. Full undo stack. |
+| **Lexicon** | Five letters, six guesses. | Duplicate letters are marked with the proper two-pass rule — exact positions claimed first, "present" marks handed out only from what is left over. Solve one and another arrives, so a run is a streak. |
+| **Word Search** | Ten words, eight directions. | Words cross wherever their letters agree, so the grid is genuinely tangled. The drag selection snaps to the nearest of the eight lines, so a sloppy diagonal still counts. |
+| **Bingo** | Two cards, one caller. | Nothing daubs itself. The caller quickens as the bag empties, and a fresh number is worth four times one you nearly let slip. |
+| **Minefield** | Minesweeper. | The first click is always safe — mines are laid *after* it, around the opening tile. Iterative flood fill, and chording on a satisfied number. |
+| **Memory** | Pairs. | Twelve symbols drawn from paths rather than a font. Consecutive matches build a combo; clearing a board with no wasted flip pays a large bonus. |
+| **Simon** | Watch, then repeat. | The original four tones, so past about six steps you stop memorising lights and start memorising a melody. Playback quickens as the sequence grows. |
+
 ---
 
 ## How it is put together
@@ -37,7 +49,12 @@ gzipped.
 
 **Code splitting that matters.** Three.js is 120 kB gzipped and only Snake 3D
 needs it, so it lives in its own chunk that is fetched when you walk up to that
-cabinet. The hub and the seven 2D games never download it.
+cabinet. The hub and the other fourteen games never download it.
+
+**No dictionary, no CDN.** The word games ship their own list — a curated 483
+common five-letter words for Lexicon and seven themed sets for the word search
+— because the arcade has to work with no network. Both games import one shared
+module, so the bundle holds a single copy.
 
 **No binary assets, at all.**
 
@@ -69,6 +86,7 @@ src/
   core/               loop, input, audio, fx, router, dom, settings
   ui/                 shell, hub, play host, leaderboard, settings, previews
   games/              one file per cabinet, lazily imported
+    words.js          embedded word lists, shared by the two word games
 scripts/
   gen-icons.mjs       dependency-free png icon generator
   sw-template.js      service worker, filled in at build time
@@ -143,6 +161,10 @@ drops a screenshot of everything into `screenshots/`.
 Arrows or WASD to move, Space to fire or confirm, P or Esc to pause, R to
 restart, M to mute. A connected gamepad is picked up automatically. On a
 touchscreen you get an on-screen pad, and the puzzle games take swipes.
+
+The card, word and board games are click-driven and show no overlay controls at
+all — you tap the board itself, which works identically with a mouse or a
+thumb.
 
 ---
 

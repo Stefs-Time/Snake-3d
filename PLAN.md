@@ -88,3 +88,41 @@ stored — three characters and a number.
 - [ ] Global leaderboard writes and reads through the API
 - [ ] Zero binary assets committed; icons generated at build time
 - [ ] Deploys to Railway from a clean clone with no manual steps
+
+
+---
+
+## Wave two — the quiet corner
+
+Added after the first eight shipped, on request: card, word and board games to
+sit alongside the arcade cabinets. All seven are pointer-driven, which needed
+one piece of engine work first.
+
+| # | Game | Codename | Core loop |
+| --- | --- | --- | --- |
+| 9 | **Solitaire** | `solitaire` | Klondike draw-three, click-to-move, full undo |
+| 10 | **Lexicon** | `lexicon` | Five-letter word guessing, streak-based scoring |
+| 11 | **Word Search** | `wordsearch` | Themed 12x12 grids, drag to claim, against a clock |
+| 12 | **Bingo** | `bingo` | Two cards, an accelerating caller, manual daubing |
+| 13 | **Minefield** | `minefield` | Minesweeper with a safe first click and chording |
+| 14 | **Memory** | `memory` | Pairs with combo scoring and a per-round clock |
+| 15 | **Simon** | `simon` | Growing tone sequence, three strikes |
+
+**Engine additions**
+
+- A `point` touch scheme that hides the overlay d-pad and fires an action on
+  pointer-down, since these games are played by tapping the board itself.
+- Pointer press/release edges on `Input`, cleared per tick like key presses, so
+  a click is handled exactly once however many simulation steps a frame runs.
+- `BaseGame.mouse`, giving pointer coordinates already translated into game
+  space with the HUD band subtracted, plus `hits()` and `roundRect()`.
+
+**Also fixed in this pass**
+
+- Chomp: an actor whose x drifted negative in the tunnel desynchronised from
+  the tile it stood on, and would then glide across the whole maze without a
+  single wall check. Positions are now normalised before any tile maths.
+- Chomp: an instant reversal could flip direction mid-loop with no wall check
+  and advance a full tile into it. Reversals are validated, and `#move` now
+  refuses to advance off a tile centre into anything it cannot enter.
+- Chomp: blank padding outside the maze was walkable; it is now solid.

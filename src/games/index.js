@@ -15,6 +15,13 @@ const LOADERS = {
   vector: () => import('./vector.js'),
   paddles: () => import('./paddles.js'),
   twenty48: () => import('./twenty48.js'),
+  solitaire: () => import('./solitaire.js'),
+  lexicon: () => import('./lexicon.js'),
+  wordsearch: () => import('./wordsearch.js'),
+  bingo: () => import('./bingo.js'),
+  minefield: () => import('./minefield.js'),
+  memory: () => import('./memory.js'),
+  simon: () => import('./simon.js'),
 };
 
 /**

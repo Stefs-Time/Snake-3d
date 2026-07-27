@@ -54,8 +54,13 @@ export class Input {
     /** @type {Array<'up'|'down'|'left'|'right'>} unconsumed swipes */
     this.swipes = [];
 
-    /** Normalised pointer position over the surface, 0..1. */
-    this.pointer = { x: 0.5, y: 0.5, active: false, down: false };
+    /**
+     * Normalised pointer position over the surface, 0..1, plus edge flags for
+     * the frame in which the button went down or came up. The edges are
+     * cleared by endFrame, exactly like key presses, so a click is handled
+     * once no matter how many simulation steps a frame produces.
+     */
+    this.pointer = { x: 0.5, y: 0.5, active: false, down: false, pressed: false, released: false };
 
     this.gamepadIndex = null;
     this.prevPadButtons = new Set();
@@ -118,6 +123,8 @@ export class Input {
   endFrame() {
     this.edges.clear();
     this.codeEdges.clear();
+    this.pointer.pressed = false;
+    this.pointer.released = false;
   }
 
   /* ------------------------------------------------------------ sources -- */
@@ -186,13 +193,20 @@ export class Input {
     const onDown = (e) => {
       norm(e);
       this.pointer.down = true;
+      this.pointer.pressed = true;
       this.touchStart = { x: e.clientX, y: e.clientY, t: performance.now() };
-      if (this.scheme === 'aim' || this.scheme === 'swipe') this.#press('action');
+      if (this.scheme === 'aim' || this.scheme === 'swipe' || this.scheme === 'point') {
+        this.#press('action');
+      }
     };
 
     const onUp = (e) => {
+      const wasDown = this.pointer.down;
       this.pointer.down = false;
-      if (this.scheme === 'aim' || this.scheme === 'swipe') this.#release('action');
+      if (wasDown) this.pointer.released = true;
+      if (this.scheme === 'aim' || this.scheme === 'swipe' || this.scheme === 'point') {
+        this.#release('action');
+      }
 
       const start = this.touchStart;
       this.touchStart = null;

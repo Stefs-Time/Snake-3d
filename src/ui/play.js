@@ -207,6 +207,10 @@ export class PlayHost {
     sfx.unlock();
     settings.set('credits', settings.get('credits'));
     api.recordPlay(this.def.id);
+
+    // `?debug` exposes the running cabinet for the console and the smoke
+    // tests. Off by default so nothing leaks into a normal session.
+    if (location.search.includes('debug')) window.__cabinet = this;
   }
 
   /* ------------------------------------------------------------ loop hooks */

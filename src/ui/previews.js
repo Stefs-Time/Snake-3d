@@ -555,6 +555,354 @@ const PREVIEWS = {
     }
   },
 
+  /* --- Solitaire: a card dealing onto a fanned pile --- */
+  solitaire(ctx, w, h, t, accent, accent2) {
+    const cw = Math.min(w * 0.17, h * 0.3);
+    const ch = cw * 1.4;
+    const baseY = h * 0.52;
+
+    const card = (x, y, faceUp, pip, red) => {
+      ctx.save();
+      ctx.fillStyle = faceUp ? '#f4f7ff' : '#161d33';
+      ctx.strokeStyle = faceUp ? 'rgba(0,0,0,0.3)' : accent;
+      ctx.lineWidth = 1.4;
+      const r = 4;
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + cw, y, x + cw, y + ch, r);
+      ctx.arcTo(x + cw, y + ch, x, y + ch, r);
+      ctx.arcTo(x, y + ch, x, y, r);
+      ctx.arcTo(x, y, x + cw, y, r);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      if (faceUp && pip) {
+        ctx.fillStyle = red ? '#d81f4a' : '#141821';
+        ctx.font = `${Math.round(cw * 0.38)}px system-ui, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(pip, x + cw / 2, y + ch / 2);
+      }
+      ctx.restore();
+    };
+
+    // A small fanned tableau.
+    const fanX = w * 0.16;
+    card(fanX, baseY - ch * 0.5, false);
+    card(fanX, baseY - ch * 0.28, false);
+    card(fanX, baseY, true, '♠', false);
+
+    // Foundation on the right, slowly accepting cards.
+    card(w * 0.66, baseY - ch * 0.25, true, '♥', true);
+
+    // One card in flight between them, on a loop.
+    const loop = 2.8;
+    const phase = ((t % loop) / loop) ** 0.85;
+    const fx = fanX + (w * 0.66 - fanX) * phase;
+    const fy = baseY - Math.sin(phase * Math.PI) * h * 0.3;
+    ctx.save();
+    ctx.shadowColor = accent2;
+    ctx.shadowBlur = 14;
+    card(fx, fy, true, '♦', true);
+    ctx.restore();
+  },
+
+  /* --- Lexicon: a row of tiles flipping to green and amber --- */
+  lexicon(ctx, w, h, t, accent, accent2) {
+    const cols = 5;
+    const size = Math.min(w / (cols + 1.5), h / 3.4);
+    const gap = size * 0.14;
+    const totalW = cols * size + (cols - 1) * gap;
+    const ox = (w - totalW) / 2;
+
+    const rows = [
+      { letters: 'CRANE', marks: [0, 1, 0, 2, 0] },
+      { letters: 'SPEED', marks: [0, 0, 2, 1, 0] },
+    ];
+    const oy = h / 2 - (size * 2 + gap) / 2;
+
+    rows.forEach((row, r) => {
+      for (let c = 0; c < cols; c++) {
+        const x = ox + c * (size + gap);
+        const y = oy + r * (size + gap);
+
+        // Each tile turns over on a staggered loop.
+        const phase = ((t * 0.55 + r * 0.5) % 3) - c * 0.12;
+        const flip = Math.max(0, Math.min(1, phase));
+        const scaleY = flip <= 0 || flip >= 1 ? 1 : Math.abs(Math.cos(flip * Math.PI));
+        const th = Math.max(2, size * scaleY);
+        const ty = y + (size - th) / 2;
+
+        const mark = flip > 0.5 ? row.marks[c] : 0;
+        ctx.fillStyle = mark === 2 ? '#4ade80' : mark === 1 ? '#facc15' : '#161b26';
+        ctx.fillRect(x, ty, size, th);
+        if (mark === 0) {
+          ctx.strokeStyle = 'rgba(255,255,255,0.16)';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(x + 0.5, ty + 0.5, size - 1, th - 1);
+        }
+        if (scaleY > 0.35) {
+          ctx.fillStyle = mark ? '#0b0e15' : '#cbd5e6';
+          ctx.font = `700 ${Math.round(size * 0.5)}px ui-monospace, monospace`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(row.letters[c], x + size / 2, y + size / 2);
+        }
+      }
+    });
+  },
+
+  /* --- Word Search: a letter grid with a word lighting up --- */
+  wordsearch(ctx, w, h, t, accent, accent2) {
+    const n = 7;
+    const cell = Math.min(w, h) / (n + 1);
+    const ox = (w - n * cell) / 2;
+    const oy = (h - n * cell) / 2;
+    const letters = 'ARCADENEONPIXELTOKENMAZEGHOST';
+
+    // The highlighted run sweeps around on a loop.
+    const runs = [
+      { r: 1, c: 1, dr: 0, dc: 1, len: 5 },
+      { r: 0, c: 5, dr: 1, dc: 0, len: 5 },
+      { r: 5, c: 1, dr: -1, dc: 1, len: 5 },
+    ];
+    const run = runs[Math.floor(t / 2.6) % runs.length];
+    const reveal = Math.min(1, ((t % 2.6) / 2.6) * 2.2);
+
+    ctx.save();
+    ctx.strokeStyle = accent;
+    ctx.globalAlpha = 0.3;
+    ctx.lineWidth = cell * 0.8;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    const sx = ox + (run.c + 0.5) * cell;
+    const sy = oy + (run.r + 0.5) * cell;
+    ctx.moveTo(sx, sy);
+    ctx.lineTo(
+      sx + run.dc * cell * (run.len - 1) * reveal,
+      sy + run.dr * cell * (run.len - 1) * reveal,
+    );
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.fillStyle = '#cbd5e6';
+    ctx.font = `600 ${Math.round(cell * 0.52)}px ui-monospace, monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (let r = 0; r < n; r++) {
+      for (let c = 0; c < n; c++) {
+        ctx.fillText(
+          letters[(r * n + c) % letters.length],
+          ox + (c + 0.5) * cell,
+          oy + (r + 0.5) * cell,
+        );
+      }
+    }
+  },
+
+  /* --- Bingo: a card with numbers daubing themselves --- */
+  bingo(ctx, w, h, t, accent, accent2) {
+    const n = 5;
+    const cell = Math.min(w / (n + 2), h / (n + 2));
+    const ox = (w - n * cell) / 2;
+    const oy = (h - n * cell) / 2 + cell * 0.3;
+    const cols = ['#fb7185', '#fbbf24', '#4ade80', '#38bdf8', '#c084fc'];
+
+    'BINGO'.split('').forEach((letter, i) => {
+      ctx.fillStyle = cols[i];
+      ctx.font = `700 ${Math.round(cell * 0.52)}px ui-monospace, monospace`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(letter, ox + (i + 0.5) * cell, oy - cell * 0.45);
+    });
+
+    for (let r = 0; r < n; r++) {
+      for (let c = 0; c < n; c++) {
+        const x = ox + c * cell;
+        const y = oy + r * cell;
+        ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x + 0.5, y + 0.5, cell - 1, cell - 1);
+
+        // Daubs arrive one at a time, then the card resets.
+        const index = (r * n + c) * 7 % 25;
+        const daubed = (t * 2.2) % 30 > index;
+        if (daubed) {
+          ctx.save();
+          ctx.globalAlpha = 0.85;
+          ctx.fillStyle = cols[c];
+          ctx.shadowColor = cols[c];
+          ctx.shadowBlur = 8;
+          ctx.beginPath();
+          ctx.arc(x + cell / 2, y + cell / 2, cell * 0.34, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        } else {
+          ctx.fillStyle = '#8b93a7';
+          ctx.font = `${Math.round(cell * 0.34)}px ui-monospace, monospace`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(String(c * 15 + r + 1), x + cell / 2, y + cell / 2);
+        }
+      }
+    }
+  },
+
+  /* --- Minefield: a board opening up around the numbers --- */
+  minefield(ctx, w, h, t, accent, accent2) {
+    const n = 8;
+    const cell = Math.min(w, h) / (n + 1);
+    const ox = (w - n * cell) / 2;
+    const oy = (h - n * cell) / 2;
+    const numberColors = ['', '#38bdf8', '#4ade80', '#fb7185', '#c084fc'];
+
+    // A wave of squares opening outward from the middle.
+    const wave = (t % 4) * 3.2;
+
+    for (let r = 0; r < n; r++) {
+      for (let c = 0; c < n; c++) {
+        const x = ox + c * cell;
+        const y = oy + r * cell;
+        const dist = Math.hypot(r - n / 2 + 0.5, c - n / 2 + 0.5);
+        const open = dist < wave;
+
+        if (open) {
+          ctx.fillStyle = 'rgba(255,255,255,0.04)';
+          ctx.fillRect(x + 1, y + 1, cell - 2, cell - 2);
+          const near = (r * 3 + c * 5) % 5;
+          if (near > 0) {
+            ctx.fillStyle = numberColors[near];
+            ctx.font = `700 ${Math.round(cell * 0.46)}px ui-monospace, monospace`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(String(near), x + cell / 2, y + cell / 2);
+          }
+        } else {
+          ctx.fillStyle = '#1b2230';
+          ctx.fillRect(x + 1, y + 1, cell - 2, cell - 2);
+          ctx.fillStyle = 'rgba(255,255,255,0.05)';
+          ctx.fillRect(x + 3, y + 3, cell - 6, 1.5);
+          // The odd flag.
+          if ((r * 7 + c * 3) % 11 === 0) {
+            ctx.save();
+            ctx.fillStyle = accent;
+            ctx.shadowColor = accent;
+            ctx.shadowBlur = 6;
+            ctx.beginPath();
+            ctx.moveTo(x + cell * 0.36, y + cell * 0.24);
+            ctx.lineTo(x + cell * 0.7, y + cell * 0.38);
+            ctx.lineTo(x + cell * 0.36, y + cell * 0.52);
+            ctx.closePath();
+            ctx.fill();
+            ctx.restore();
+          }
+        }
+      }
+    }
+  },
+
+  /* --- Memory: cards flipping over to reveal shapes --- */
+  memory(ctx, w, h, t, accent, accent2) {
+    const cols = 4;
+    const rows = 3;
+    const cw = Math.min(w / (cols + 1), h / (rows + 0.8));
+    const ch = cw * 1.14;
+    const gap = cw * 0.14;
+    const ox = (w - (cols * cw + (cols - 1) * gap)) / 2;
+    const oy = (h - (rows * ch + (rows - 1) * gap)) / 2;
+    const colors = ['#38bdf8', '#f472b6', '#4ade80', '#fbbf24', '#c084fc', '#fb7185'];
+
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const i = r * cols + c;
+        const x = ox + c * (cw + gap);
+        const y = oy + r * (ch + gap);
+
+        // Pairs turn over together, on their own staggered cycle.
+        const pair = i % 6;
+        const phase = (t * 0.6 + pair * 0.9) % 5;
+        const faceUp = phase > 1 && phase < 2.6;
+        const flip = faceUp ? 1 : 0;
+        const scaleX = Math.abs(Math.cos(flip * Math.PI));
+        const dw = cw * (scaleX === 1 ? 1 : Math.max(0.1, scaleX));
+
+        ctx.save();
+        if (faceUp) {
+          ctx.fillStyle = '#141a26';
+          ctx.strokeStyle = colors[pair];
+          ctx.shadowColor = colors[pair];
+          ctx.shadowBlur = 10;
+        } else {
+          ctx.fillStyle = '#101726';
+          ctx.strokeStyle = 'rgba(56,189,248,0.3)';
+        }
+        ctx.lineWidth = 1.5;
+        ctx.fillRect(x + (cw - dw) / 2, y, dw, ch);
+        ctx.strokeRect(x + (cw - dw) / 2 + 0.75, y + 0.75, dw - 1.5, ch - 1.5);
+
+        if (faceUp) {
+          ctx.fillStyle = colors[pair];
+          const cx = x + cw / 2;
+          const cy = y + ch / 2;
+          const rad = cw * 0.24;
+          ctx.beginPath();
+          if (pair % 3 === 0) ctx.arc(cx, cy, rad, 0, Math.PI * 2);
+          else if (pair % 3 === 1) ctx.rect(cx - rad, cy - rad, rad * 2, rad * 2);
+          else {
+            ctx.moveTo(cx, cy - rad);
+            ctx.lineTo(cx + rad, cy + rad);
+            ctx.lineTo(cx - rad, cy + rad);
+            ctx.closePath();
+          }
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+    }
+  },
+
+  /* --- Simon: the four pads lighting in sequence --- */
+  simon(ctx, w, h, t) {
+    const cx = w / 2;
+    const cy = h / 2;
+    const outer = Math.min(w, h) * 0.42;
+    const inner = outer * 0.36;
+
+    const pads = [
+      { color: '#22c55e', lit: '#86efac', start: Math.PI, end: Math.PI * 1.5 },
+      { color: '#ef4444', lit: '#fca5a5', start: Math.PI * 1.5, end: Math.PI * 2 },
+      { color: '#eab308', lit: '#fde047', start: Math.PI * 0.5, end: Math.PI },
+      { color: '#3b82f6', lit: '#93c5fd', start: 0, end: Math.PI * 0.5 },
+    ];
+
+    const order = [0, 3, 1, 2, 0, 1, 3];
+    const active = order[Math.floor(t * 1.8) % order.length];
+
+    pads.forEach((pad, i) => {
+      const lit = i === active;
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(cx, cy, outer, pad.start + 0.04, pad.end - 0.04);
+      ctx.arc(cx, cy, inner, pad.end - 0.04, pad.start + 0.04, true);
+      ctx.closePath();
+      if (lit) {
+        ctx.fillStyle = pad.lit;
+        ctx.shadowColor = pad.color;
+        ctx.shadowBlur = 26;
+      } else {
+        ctx.fillStyle = pad.color;
+        ctx.globalAlpha = 0.36;
+      }
+      ctx.fill();
+      ctx.restore();
+    });
+
+    ctx.fillStyle = '#0b1018';
+    ctx.beginPath();
+    ctx.arc(cx, cy, inner - 3, 0, Math.PI * 2);
+    ctx.fill();
+  },
+
   default(ctx, w, h, t, accent) {
     glow(ctx, accent, 16, () => {
       ctx.beginPath();

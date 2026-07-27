@@ -46,7 +46,8 @@ function watch(page, label) {
     if (/favicon|net::ERR_INTERNET_DISCONNECTED/.test(text)) return;
     problems.push(`[${label}] console: ${text}`);
   });
-  page.on('pageerror', (err) => problems.push(`[${label}] pageerror: ${err.message}`));
+  page.on('pageerror', (err) =>
+    problems.push(`[${label}] pageerror on ${page.url().replace(BASE, '')}: ${err.message}`));
   page.on('requestfailed', (req) => {
     const failure = req.failure()?.errorText ?? '';
     if (/ERR_ABORTED/.test(failure)) return;
@@ -104,8 +105,28 @@ async function main() {
       await sleep(180);
     }
     await page.keyboard.down('ArrowRight');
-    await sleep(900);
+    await sleep(700);
     await page.keyboard.up('ArrowRight');
+
+    // Half the cabinets are click-driven, so click around the board too —
+    // including a drag, which is how the word search is played.
+    const frame = await page.$('.cabinet__frame');
+    const box = await frame.boundingBox();
+    for (const [fx, fy] of [[0.3, 0.4], [0.5, 0.55], [0.7, 0.45], [0.4, 0.7], [0.62, 0.68]]) {
+      await page.mouse.click(box.x + box.width * fx, box.y + box.height * fy);
+      await sleep(170);
+    }
+    await page.mouse.move(box.x + box.width * 0.25, box.y + box.height * 0.35);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * 0.55, box.y + box.height * 0.35, { steps: 8 });
+    await page.mouse.up();
+
+    // Letters, for the word game.
+    // Avoid KeyR and KeyP here: they are the global restart and pause bindings.
+    for (const key of ['KeyS', 'KeyL', 'KeyA', 'KeyT', 'KeyE', 'Enter']) {
+      await page.keyboard.press(key);
+      await sleep(90);
+    }
     await sleep(900);
 
     // The score readout should exist and be a number.

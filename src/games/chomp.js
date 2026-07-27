@@ -34,15 +34,15 @@ const MAZE = [
   '#.####.##.########.##.####.#',
   '#......##....##....##......#',
   '######.##### ## #####.######',
-  '     #.##### ## #####.#     ',
-  '     #.##          ##.#     ',
-  '     #.## ###--### ##.#     ',
+  '######.##### ## #####.######',
+  '######.##          ##.######',
+  '######.## ###--### ##.######',
   '######.## #      # ##.######',
   '      .   #      #   .      ',
   '######.## #      # ##.######',
-  '     #.## ######## ##.#     ',
-  '     #.##          ##.#     ',
-  '     #.## ######## ##.#     ',
+  '######.## ######## ##.######',
+  '######.##          ##.######',
+  '######.## ######## ##.######',
   '######.## ######## ##.######',
   '#............##............#',
   '#.####.#####.##.#####.####.#',
@@ -296,15 +296,16 @@ export default class Chomp extends BaseGame {
         this.#eatAt(entity);
         return this.#canEnter(entity, entity.dir);
       },
-      // Cornering: allow a turn a little before the centre, like the original.
+      // A reversal takes effect immediately rather than waiting for the next
+      // tile centre — that instant about-turn is a big part of how the
+      // original feels. It still has to be a legal move: parked nose-first
+      // against a wall, "back the way you came" can point straight into it.
       preTurn: (entity) => {
-        if (!entity.queued) return false;
-        if (entity.queued === OPPOSITE[entity.dir]) {
-          entity.dir = entity.queued;
-          entity.queued = null;
-          return true;
-        }
-        return false;
+        if (!entity.queued || entity.queued !== OPPOSITE[entity.dir]) return false;
+        if (!this.#canEnter(entity, entity.queued)) return false;
+        entity.dir = entity.queued;
+        entity.queued = null;
+        return true;
       },
     });
   }
@@ -394,6 +395,7 @@ export default class Chomp extends BaseGame {
         return;
       }
       this.#move(ghost, 13 * TILE * dt, {
+        allowDoor: true,
         onCenter: (entity) => {
           entity.dir = this.#chooseDirection(entity, target, { allowDoor: true });
           return true;
@@ -613,14 +615,35 @@ export default class Chomp extends BaseGame {
    * make decisions. Splitting the movement at centres keeps turns exact no
    * matter how much distance a frame covers.
    */
-  #move(entity, distance, { onCenter, preTurn } = {}) {
+  #move(entity, distance, { onCenter, preTurn, allowDoor = false } = {}) {
+    const width = COLS * TILE;
     let remaining = distance;
     let guard = 0;
 
     while (remaining > 0 && guard++ < 8) {
+      // Normalise into the board *before* any tile maths. Skipping this is
+      // subtle and severe: once x drifts negative in the tunnel, colOf wraps
+      // to column 27 while x is still around zero, so the computed distance to
+      // the next tile centre becomes the width of the whole maze. The entity
+      // then glides clear across the board without a single wall check.
+      if (entity.x < 0) entity.x += width;
+      else if (entity.x >= width) entity.x -= width;
+
+      // preTurn may flip the direction, so resolve it before reading `dir`.
+      if (preTurn?.(entity)) continue;
+
       const d = DIRS[entity.dir];
       const centerX = (this.#colOf(entity) + 0.5) * TILE;
       const centerY = (this.#rowOf(entity) + 0.5) * TILE;
+
+      // Standing exactly on a centre means the next step covers a whole tile,
+      // so the tile ahead has to be legal before we commit to it. Callers also
+      // check this from onCenter, but that check happens *after* the move — so
+      // anything that changes direction mid-loop would otherwise slip through.
+      // This is the invariant that keeps actors inside the maze.
+      const onCentre =
+        Math.abs(entity.x - centerX) < 0.01 && Math.abs(entity.y - centerY) < 0.01;
+      if (onCentre && !this.#canEnter(entity, entity.dir, { allowDoor })) break;
 
       // Distance until the next tile centre along the current axis.
       let toCentre;
@@ -633,8 +656,6 @@ export default class Chomp extends BaseGame {
                                : centerY - (entity.y <= centerY + 0.001 ? TILE : 0);
         toCentre = Math.abs(target - entity.y);
       }
-
-      if (preTurn?.(entity)) continue;
 
       if (remaining < toCentre) {
         entity.x += d.x * remaining;
@@ -652,11 +673,11 @@ export default class Chomp extends BaseGame {
         const mayContinue = onCenter ? onCenter(entity) : true;
         if (!mayContinue) break;
       }
-
-      // Tunnel wrap.
-      if (entity.x < -TILE / 2) entity.x += COLS * TILE;
-      if (entity.x > COLS * TILE + TILE / 2) entity.x -= COLS * TILE;
     }
+
+    // And once more on the way out, so the entity is always left on the board.
+    if (entity.x < 0) entity.x += width;
+    else if (entity.x >= width) entity.x -= width;
   }
 
   /** Straight-line drift, used inside the ghost house where walls do not apply. */

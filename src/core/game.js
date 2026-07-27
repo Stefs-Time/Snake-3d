@@ -190,6 +190,46 @@ export class BaseGame {
     ctx.restore();
   }
 
+  /* ------------------------------------------------------ pointer input */
+
+  /**
+   * The pointer in game coordinates, with the HUD band subtracted so (0, 0) is
+   * the top-left of the playfield — the same space `draw` works in.
+   * `pressed` and `released` are single-frame edges.
+   */
+  get mouse() {
+    const p = this.input.pointer;
+    const pad = this.constructor.hudPad;
+    return {
+      x: p.x * this.width,
+      y: p.y * this.constructor.pixelHeight - pad.top,
+      down: p.down,
+      pressed: p.pressed,
+      released: p.released,
+      active: p.active,
+    };
+  }
+
+  /** Point-in-rectangle, for hit-testing anything the pointer can click. */
+  hits(px, py, x, y, w, h) {
+    return px >= x && px <= x + w && py >= y && py <= y + h;
+  }
+
+  /** Trace a rounded rectangle. Call fill() or stroke() yourself. */
+  roundRect(ctx, x, y, w, h, r) {
+    const radius = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + radius, y);
+    ctx.arcTo(x + w, y, x + w, y + h, radius);
+    ctx.arcTo(x + w, y + h, x, y + h, radius);
+    ctx.arcTo(x, y + h, x, y, radius);
+    ctx.arcTo(x, y, x + w, y, radius);
+    ctx.closePath();
+    return ctx;
+  }
+
+  /* ------------------------------------------------------ more drawing */
+
   /** A faint dot grid, the shared visual language of the 2D cabinets. */
   drawGrid(ctx, cell = 32, color = 'rgba(255,255,255,0.045)') {
     ctx.save();

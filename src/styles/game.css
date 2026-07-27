@@ -541,10 +541,16 @@ body.is-touch .touch {
 /* Each scheme shows only the controls its game actually uses, so nothing
    sits on the playfield doing nothing. */
 
-/* swipe / aim / none: no d-pad. */
+/* swipe / aim / point / none: no d-pad. */
 .touch[data-scheme="swipe"] .touch__pad,
 .touch[data-scheme="aim"] .touch__pad,
+.touch[data-scheme="point"] .touch__pad,
 .touch[data-scheme="none"] .touch__pad {
+  display: none;
+}
+
+/* point: you tap the board itself, so no overlay controls at all. */
+.touch[data-scheme="point"] .touch__action {
   display: none;
 }
 

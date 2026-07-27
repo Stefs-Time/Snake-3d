@@ -1,7 +1,7 @@
 {
   "name": "Neon Cabinet — Arcade Classics",
   "short_name": "Neon Cabinet",
-  "description": "Eight arcade classics in one installable cabinet: Snake 3D, Chomp, Blockfall, Invaders, Bricks, Vector, Paddles and 2048. Plays offline, with a global leaderboard.",
+  "description": "Fifteen arcade and tabletop classics in one installable cabinet: Snake 3D, Chomp, Blockfall, Invaders, Bricks, Vector, Paddles, 2048, Solitaire, Lexicon, Word Search, Bingo, Minefield, Memory and Simon. Plays offline, with a global leaderboard.",
   "id": "/",
   "start_url": "/",
   "scope": "/",

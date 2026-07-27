@@ -9,6 +9,15 @@ import { attachPreview, PREVIEWS, stopPreviews } from './previews.js';
 let disposers = [];
 let heroTimer = 0;
 
+const NUMBER_WORDS = [
+  '', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten',
+  'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen',
+  'Eighteen', 'Nineteen', 'Twenty',
+];
+
+/** So the headline stays true when a cabinet is added. */
+const countWord = (n) => NUMBER_WORDS[n] ?? String(n);
+
 export function renderHub() {
   cleanup();
 
@@ -29,15 +38,16 @@ export function renderHub() {
         h('p.eyebrow', `${GAMES.length} cabinets · installable · plays offline`),
         h(
           'h1.hero__title.chromatic',
-          'Eight classics.',
+          `${countWord(GAMES.length)} classics.`,
           h('br'),
           h('em', 'One cabinet.'),
         ),
         h(
           'p.hero__sub',
           'Snake lifted into 3D, a maze chase with the original ghost AI intact, ' +
-            'a stacker with modern rotation rules, and five more. Install it once ' +
-            'and the whole arcade works on a plane.',
+            'a stacker with modern rotation rules — and a quieter corner with ' +
+            'solitaire, word games and a bingo caller who does not wait for you. ' +
+            'Install it once and the whole arcade works on a plane.',
         ),
         h(
           'div.hero__actions',
