@@ -483,16 +483,20 @@ export const GAMES = [
     codename: 'BULWRK',
     tagline: 'Build it before they arrive.',
     blurb:
-      'A fixed road from the west gate to the keep, and everything else is yours to build on. Four towers — a gun, a splash cannon, a chiller and a tesla that arcs to three at once — each upgradeable twice. Calling a wave in early pays a bounty for the peace you sold, so the real question is never which tower to build but how much time to sell.',
+      'A fixed road from the west gate to the keep, and everything else is yours to build on. Four towers — a gun, a splash cannon, a chiller and a tesla that arcs to three at once — each upgradeable twice. The siege arrives in named stages: tanks carry armour that grows every wave, shades cannot be chilled, and wardens shield everything standing near them, so no single tower stays the answer for long. Calling a wave in early pays a bounty for the peace you sold, so the real question is never which tower to build but how much time to sell.',
     year: 1990,
     genre: 'Defense',
     accent: '#a3e635',
     accent2: '#fb923c',
     glyph: 'M5 21V10l4-3 4 3v11M5 21h14V13l-3-2M9 21v-5h4v5M12 3l2 2-2 2-2-2z',
-    controls: ['Click a tower, then open ground', '1-4 to pick a tower', 'Space calls the next wave early'],
+    controls: [
+      'Click a tower, then open ground',
+      '1-4 to pick a tower',
+      'Space calls the next wave early — read the roster first',
+    ],
     controlsTouch: [
       'Tap a tower, then open ground',
-      'The side panel picks the tower',
+      'The panel lists what the next wave brings',
       'The bar at its foot calls a wave early',
     ],
     scoreLabel: 'Score',

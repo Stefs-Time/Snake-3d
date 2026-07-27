@@ -207,3 +207,59 @@ have. The audit found the problem was worse than wording.
   options, and the `?debug` hook.
 - The wave log moved out of `PLAN.md`, which had become a changelog while
   still opening as a forward-looking plan for eight games, into this file.
+
+
+---
+
+## Wave seven — Bulwark could not be lost
+
+Reported: enough level-three towers and nothing gets through. Measured before
+changing anything, and the report was right — worse, the game got *easier*
+every wave past about six.
+
+The cause was a mismatch of growth rates, not a number that was too small.
+Gold income per wave grew linearly, so cumulative gold — and the damage a
+defence can field — grew quadratically. Enemy health grew linearly and waves
+grew proportionally longer, so the damage a wave *demanded per second* grew
+only linearly. Quadratic supply against linear demand: a normalised model of
+the old curve sat at 1.0 on wave six and 6.2 on wave thirty-eight, climbing
+the whole way.
+
+**The curve**
+
+- Health scales geometrically rather than linearly, so demand can outrun a
+  compounding economy instead of trailing it forever.
+- Waves compress: the same enemies arrive in less time as the siege tightens.
+  This raises demand without adding bodies to kill — and every extra body was
+  extra income, which was part of the problem.
+- Armour scales too, and the damage floor is a percentage rather than a flat
+  point, so a wall of the cheapest fast-firing tower stops being a universal
+  answer and the big-hit towers earn their cost.
+- Counts grow more slowly, the wave-clear bonus is trimmed, and upgrades cost
+  a little more.
+
+**The staging**
+
+Seven named stages, each announced on the wave it begins, because every one of
+them changes what a working defence looks like: Skirmish, Swarm, Armour, Siege
+(bosses every fifth wave from ten), Shades, Wardens, Onslaught.
+
+- **Shades** are fast and cannot be chilled, so Frost stops being a universal
+  answer.
+- **Wardens** absorb 35% of damage dealt to anything near them, drawn as a
+  shield bubble — the correct play is to break the support, not out-damage it.
+- Waves are interleaved rather than marched out in blocks, and a boss is
+  placed in traffic rather than alone at either end.
+- The panel shows the next wave's roster during the build break, in the space
+  the selected-tower readout leaves empty. Calling a wave early was a gamble
+  without it, and a new kind of enemy used to arrive with no warning at all.
+
+**Verified**
+
+`npm run balance` plays the real cabinet headlessly with a scripted player and
+reports the wave the keep falls on. A competent run now ends on wave 15; a
+perfect one that always claims the early-wave bounty ends on 25. It fails the
+build if either drifts past 45.
+
+Also fixed: the sell button overlapped the call-wave bar by 18 pixels whenever
+a tower was selected.

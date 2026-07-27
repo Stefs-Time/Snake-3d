@@ -13,6 +13,30 @@ import { BaseGame } from '../core/game.js';
  * a single max() instead of a pathfinding problem. Second, calling a wave in
  * early pays a bounty proportional to the time you skipped, so the interesting
  * choice is not which tower to build but how much peace to sell.
+ *
+ * On the difficulty curve
+ * ----------------------
+ * Gold income per wave grows linearly, so *cumulative* gold — and with it the
+ * damage you can field — grows quadratically. Enemy health used to grow
+ * linearly and waves used to get proportionally longer, which meant the damage
+ * a wave *demanded per second* grew only linearly. Quadratic supply against
+ * linear demand: past about wave six the game got easier every wave, and a
+ * board of level-three towers could not lose.
+ *
+ * Three things fix that, and they have to work together:
+ *
+ *   - Health scales geometrically, not linearly, so demand can outrun a
+ *     quadratic economy rather than trailing it forever.
+ *   - Waves compress. The same enemies arrive in less time as the siege
+ *     tightens, which raises damage-per-second demanded without adding
+ *     anything to kill or any more gold to collect.
+ *   - Armour scales too, and is a percentage floor rather than a flat one, so
+ *     a wall of the cheapest fast-firing tower stops being a universal answer
+ *     and the big-hit towers earn their cost.
+ *
+ * The result is a plateau — roughly waves six to twenty sit at a constant
+ * difficulty where play matters — and then a slow decline into a loss
+ * somewhere in the thirties. Boss waves are deliberate spikes through it.
  */
 
 const COLS = 18;
@@ -65,12 +89,39 @@ const TOWER_IDS = Object.keys(TOWERS);
 const MAX_LEVEL = 3;
 
 const ENEMIES = {
-  grunt: { hp: 62, speed: 46, gold: 8, armor: 0, radius: 10, color: '#a3e635' },
-  runner: { hp: 40, speed: 92, gold: 7, armor: 0, radius: 8, color: '#fbbf24' },
-  swarm: { hp: 24, speed: 66, gold: 4, armor: 0, radius: 7, color: '#f472b6' },
-  tank: { hp: 230, speed: 30, gold: 22, armor: 7, radius: 13, color: '#94a3b8' },
-  boss: { hp: 1400, speed: 27, gold: 140, armor: 14, radius: 18, color: '#fb7185' },
+  grunt: { hp: 62, speed: 46, gold: 8, armor: 0, radius: 10, color: '#a3e635', gap: 0.62, label: 'Grunt' },
+  runner: { hp: 40, speed: 92, gold: 7, armor: 0, radius: 8, color: '#fbbf24', gap: 0.36, label: 'Runner' },
+  swarm: { hp: 24, speed: 66, gold: 4, armor: 0, radius: 7, color: '#f472b6', gap: 0.2, label: 'Swarm' },
+  tank: { hp: 230, speed: 30, gold: 22, armor: 7, radius: 13, color: '#94a3b8', gap: 1.1, label: 'Tank' },
+  // Fast and cannot be chilled, so Frost stops being a universal answer.
+  shade: { hp: 90, speed: 118, gold: 9, armor: 2, radius: 9, color: '#818cf8', gap: 0.3, label: 'Shade', slowImmune: true },
+  // Shields everything near it, so the support has to die before the wave does.
+  warden: { hp: 420, speed: 34, gold: 30, armor: 10, radius: 14, color: '#2dd4bf', gap: 1.6, label: 'Warden', aura: true },
+  boss: { hp: 1400, speed: 27, gold: 140, armor: 14, radius: 18, color: '#fb7185', gap: 1.4, label: 'Boss' },
 };
+
+/** What each kind costs the keep if it walks in. */
+const LEAK_DAMAGE = { boss: 6, warden: 4, tank: 3, shade: 2 };
+
+/** How far a Warden's protection reaches, and how much it absorbs. */
+const WARDEN_AURA = 2.2 * CELL;
+const WARDEN_SHIELD = 0.35;
+
+/**
+ * The staged curve. Each entry names a wave where something genuinely new
+ * arrives, and the note is shown to the player on the wave it starts, so a
+ * new threat is never a surprise you only understand after it has cost you
+ * the keep.
+ */
+const STAGES = [
+  { from: 1, name: 'Skirmish', note: 'Grunts down the road. Build.' },
+  { from: 3, name: 'Swarm', note: 'Swarms: many, fast, fragile. Splash earns its cost.' },
+  { from: 5, name: 'Armour', note: 'Tanks. Armour now grows every wave — small hits fade.' },
+  { from: 10, name: 'Siege', note: 'A boss every fifth wave from here.' },
+  { from: 12, name: 'Shades', note: 'Shades are fast and cannot be chilled.' },
+  { from: 16, name: 'Wardens', note: 'Wardens shield everything near them. Kill the Warden.' },
+  { from: 22, name: 'Onslaught', note: 'No more introductions.' },
+];
 
 export default class Bulwark extends BaseGame {
   static id = 'bulwark';
@@ -112,6 +163,7 @@ export default class Bulwark extends BaseGame {
     this.selectedType = 'gun';
     this.selectedTower = null;
     this.spawnQueue = [];
+    this.wardens = [];
     this.spawnTimer = 0;
     this.breakTimer = this.buildTime;
     this.leaked = 0;
@@ -182,25 +234,79 @@ export default class Bulwark extends BaseGame {
 
   /* ================================================================ waves */
 
-  /** Wave composition. Every fifth wave is a boss, escorted. */
-  #composeWave(wave) {
-    const queue = [];
-    const push = (kind, count, gap) => {
-      for (let i = 0; i < count; i++) queue.push({ kind, gap });
+  /**
+   * How many of each kind a wave brings. Counts grow more slowly than they
+   * used to — the difficulty now comes from health and compression rather
+   * than from an ever-longer parade, which also stops the economy inflating,
+   * since gold per kill is fixed and every extra body is extra income.
+   */
+  #roster(wave) {
+    const roster = [];
+    const add = (kind, count) => {
+      if (count > 0) roster.push({ kind, count });
     };
 
-    if (wave % 5 === 0) {
-      push('grunt', 6 + wave, 0.5);
-      push('boss', Math.ceil(wave / 10), 1.4);
-      push('runner', 4 + wave, 0.32);
-      return queue;
+    add('grunt', 4 + Math.floor(wave * 0.85));
+    if (wave >= 2) add('runner', 2 + Math.floor(wave * 0.7));
+    if (wave >= 3) add('swarm', 5 + Math.floor(wave * 1.15));
+    if (wave >= 5) add('tank', Math.floor(wave / 2.5));
+    if (wave >= 12) add('shade', 3 + Math.floor((wave - 12) * 0.8));
+    if (wave >= 16) add('warden', 1 + Math.floor((wave - 16) / 6));
+    if (wave >= 10 && wave % 5 === 0) add('boss', 1 + Math.floor(wave / 10));
+    return roster;
+  }
+
+  /**
+   * Waves tighten as the siege goes on: the same enemies arrive in less time.
+   * This is what keeps the damage a wave *demands per second* growing, which
+   * is the number that decides whether a defence holds — total health spread
+   * over a proportionally longer wave never threatens anything.
+   */
+  #gapScale(wave) {
+    return Math.max(0.55, 1 - (wave - 1) * 0.02);
+  }
+
+  /**
+   * Turn the roster into a spawn order. Kinds are interleaved rather than
+   * marched out in blocks, so a wave is a mixed problem — splash and chain
+   * towers see clusters, and a Warden walks among the things it protects.
+   */
+  #composeWave(wave) {
+    const roster = this.#roster(wave).map((r) => ({ ...r, left: r.count }));
+    const scale = this.#gapScale(wave);
+    const total = roster.reduce((n, r) => n + r.count, 0);
+
+    const smallest = Math.min(...roster.map((r) => r.count));
+
+    const queue = [];
+    // Weighted round robin: a kind with twice the count appears twice as often.
+    while (queue.length < total) {
+      for (const entry of roster) {
+        if (entry.left <= 0) continue;
+        const share = Math.max(1, Math.round(entry.count / smallest));
+        for (let i = 0; i < share && entry.left > 0; i++) {
+          queue.push({ kind: entry.kind, gap: ENEMIES[entry.kind].gap * scale });
+          entry.left--;
+        }
+      }
     }
 
-    push('grunt', 5 + Math.floor(wave * 1.5), 0.62);
-    if (wave >= 2) push('runner', 3 + wave, 0.36);
-    if (wave >= 3) push('swarm', 6 + wave * 2, 0.2);
-    if (wave >= 4) push('tank', Math.floor(wave / 2), 1.1);
+    // A boss that arrives first is fought alone; one that arrives last is
+    // fought by a defence with nothing left to distract it. Put it in traffic.
+    const bosses = queue.filter((e) => e.kind === 'boss');
+    if (bosses.length) {
+      const rest = queue.filter((e) => e.kind !== 'boss');
+      const at = Math.floor(rest.length * 0.55);
+      return [...rest.slice(0, at), ...bosses, ...rest.slice(at)];
+    }
     return queue;
+  }
+
+  /** The stage a wave belongs to, for the banner and the gate preview. */
+  #stageFor(wave) {
+    let stage = STAGES[0];
+    for (const s of STAGES) if (wave >= s.from) stage = s;
+    return stage;
   }
 
   #startWave({ early = false } = {}) {
@@ -220,24 +326,54 @@ export default class Bulwark extends BaseGame {
       this.play('levelup');
     }
 
+    // A stage that starts on this wave announces itself, because every one of
+    // them changes what a working defence looks like.
+    const stage = this.#stageFor(this.wave);
+    if (stage.from === this.wave) {
+      this.banner(stage.name);
+      this.host.setHint(`${stage.name} — ${stage.note}`);
+      this.play('powerup');
+    }
+
     this.spawnQueue = this.#composeWave(this.wave);
     this.spawnTimer = 0;
     this.breakTimer = 0;
   }
 
+  /**
+   * Health scales geometrically. A linear ramp is what let a finished board
+   * coast: the player's damage compounds with every wave's income, so the
+   * threat has to compound too or the gap only ever widens.
+   */
+  #healthScale(wave) {
+    return (1 + (wave - 1) * 0.13) * 1.055 ** (wave - 1);
+  }
+
+  /**
+   * Armour scales with it. Flat reduction that never grows is irrelevant by
+   * wave ten; growing it is what turns "more of the cheapest tower" from a
+   * strategy into a phase you grow out of.
+   */
+  #armorScale(wave) {
+    return 1 + (wave - 1) * 0.16;
+  }
+
   #spawn(kind) {
     const def = ENEMIES[kind];
-    // Health climbs steadily; speed only creeps, so the road stays readable.
-    const scale = 1 + (this.wave - 1) * 0.19;
+    const scale = this.#healthScale(this.wave);
+    const hp = def.hp * scale;
     this.enemies.push({
       kind,
-      hp: def.hp * scale,
-      maxHp: def.hp * scale,
+      hp,
+      maxHp: hp,
+      // Speed only creeps, so the road stays readable however hard it gets.
       speed: def.speed * (1 + (this.wave - 1) * 0.012),
-      armor: def.armor,
+      armor: def.armor * this.#armorScale(this.wave),
       gold: def.gold,
       radius: def.radius,
       color: def.color,
+      slowImmune: !!def.slowImmune,
+      aura: !!def.aura,
       distance: 0,
       slowUntil: 0,
       slowFactor: 1,
@@ -259,7 +395,7 @@ export default class Bulwark extends BaseGame {
   }
 
   #upgradeCost(tower) {
-    return Math.round(TOWERS[tower.type].cost * 0.85 * tower.level);
+    return Math.round(TOWERS[tower.type].cost * 0.9 * tower.level);
   }
 
   #sellValue(tower) {
@@ -326,13 +462,32 @@ export default class Bulwark extends BaseGame {
 
   /* ============================================================== combat */
 
+  /**
+   * How much a Warden nearby is absorbing for this enemy. Wardens are few, so
+   * the scan is cheap; the point is that the correct play against a shielded
+   * wave is to break the support first, not to out-damage the shield.
+   */
+  #shieldFactor(enemy) {
+    if (!this.wardens.length) return 1;
+    const [ex, ey] = this.#pointAt(enemy.distance);
+    for (const warden of this.wardens) {
+      if (warden === enemy || warden.hp <= 0) continue;
+      const [wx, wy] = this.#pointAt(warden.distance);
+      if (Math.hypot(ex - wx, ey - wy) <= WARDEN_AURA) return 1 - WARDEN_SHIELD;
+    }
+    return 1;
+  }
+
   #damage(enemy, amount, source) {
-    // Armour is flat reduction, with a floor so nothing is ever immune.
-    const dealt = Math.max(1, amount - enemy.armor);
+    // Armour is flat reduction against a *proportional* floor. A flat floor of
+    // one point meant a fast cheap tower always did something; a percentage
+    // floor means a big hit gets more through armour than many small ones,
+    // which is the whole reason to own more than one kind of tower.
+    const dealt = Math.max(amount * 0.12, amount - enemy.armor) * this.#shieldFactor(enemy);
     enemy.hp -= dealt;
     enemy.hitFlash = 0.12;
 
-    if (source?.slow) {
+    if (source?.slow && !enemy.slowImmune) {
       enemy.slowUntil = 1.7;
       enemy.slowFactor = 1 - source.slow;
     }
@@ -463,7 +618,9 @@ export default class Bulwark extends BaseGame {
     } else if (!this.enemies.length) {
       // Wave cleared: pay a bonus, then count down to the next one.
       if (this.breakTimer <= 0 && this.wave > 0) {
-        this.gold += 40 + this.wave * 12;
+        // Trimmed from 12/wave: cumulative gold is what compounds, and it
+        // was outrunning the threat on its own.
+        this.gold += 40 + this.wave * 9;
         this.#award(200 + this.wave * 60);
         this.breakTimer = this.buildTime;
         this.play('levelup');
@@ -471,6 +628,9 @@ export default class Bulwark extends BaseGame {
       this.breakTimer -= dt;
       if (this.breakTimer <= 0) this.#startWave();
     }
+
+    // Refreshed once per tick: every damage event asks who is shielding.
+    this.wardens = this.enemies.filter((e) => e.aura && e.hp > 0);
 
     /* --- enemies --- */
     for (const enemy of this.enemies) {
@@ -484,7 +644,7 @@ export default class Bulwark extends BaseGame {
       if (enemy.distance >= this.pathLength) {
         enemy.leaked = true;
         // Tougher enemies do more damage when they get through.
-        this.health -= enemy.kind === 'boss' ? 6 : enemy.kind === 'tank' ? 3 : 1;
+        this.health -= LEAK_DAMAGE[enemy.kind] ?? 1;
         this.leaked++;
         this.play('die');
         this.shake.add(7);
@@ -580,11 +740,12 @@ export default class Bulwark extends BaseGame {
   }
 
   #upgradeRect() {
-    return [PANEL_X, MAP_Y + 330, PANEL_W, 38];
+    return [PANEL_X, MAP_Y + 320, PANEL_W, 36];
   }
 
+  // Was 374+32, which ran 18px into the call-wave bar below it.
   #sellRect() {
-    return [PANEL_X, MAP_Y + 374, PANEL_W, 32];
+    return [PANEL_X, MAP_Y + 360, PANEL_W, 26];
   }
 
   #waveButtonRect() {
@@ -684,6 +845,47 @@ export default class Bulwark extends BaseGame {
     }
   }
 
+  /**
+   * What is about to walk out of the gate. Tower defense is a game about
+   * preparing for a *specific* threat; without this, calling a wave early is a
+   * gamble rather than a read, and a new kind of enemy arrives with no warning
+   * at all.
+   *
+   * It lives in the slot the selected-tower panel uses, which is empty exactly
+   * when this matters. On the map it would have covered ground you want to
+   * build on during the only moment you can build.
+   */
+  #drawNextWave(ctx) {
+    if (this.breakTimer <= 0 || this.spawnQueue.length || this.over) return;
+
+    const next = this.wave + 1;
+    const roster = this.#roster(next);
+    const stage = this.#stageFor(next);
+    const fresh = stage.from === next;
+    const y = MAP_Y + 302;
+
+    this.text(ctx, `NEXT · WAVE ${next}`, PANEL_X, y, {
+      size: 9, color: fresh ? '#fbbf24' : '#5c6478', align: 'left',
+    });
+    if (fresh) {
+      this.text(ctx, stage.name.toUpperCase(), PANEL_X + PANEL_W, y, {
+        size: 9, color: '#fbbf24', align: 'right', glow: 6,
+      });
+    }
+
+    // Two columns, so a late roster of seven kinds still fits the gap.
+    const colW = PANEL_W / 2;
+    roster.forEach(({ kind, count }, i) => {
+      const def = ENEMIES[kind];
+      const cx = PANEL_X + (i % 2) * colW;
+      const cy = y + 16 + Math.floor(i / 2) * 15;
+      this.glowCircle(ctx, cx + 5, cy + 5, 3.5, def.color, 5);
+      this.text(ctx, `${def.label} x${count}`, cx + 14, cy, {
+        size: 9.5, color: '#c7cddb', align: 'left', weight: 500,
+      });
+    });
+  }
+
   #drawRange(ctx) {
     if (!this.selectedTower) return;
     const stats = this.#stats(this.selectedTower);
@@ -741,6 +943,22 @@ export default class Bulwark extends BaseGame {
   }
 
   #drawEnemies(ctx) {
+    // The shield bubbles go down first so every protected body sits inside one
+    // — you can see what a Warden is worth without reading a number.
+    for (const warden of this.wardens) {
+      const [x, y] = this.#pointAt(warden.distance);
+      ctx.save();
+      ctx.strokeStyle = 'rgba(45,212,191,0.28)';
+      ctx.fillStyle = 'rgba(45,212,191,0.06)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([5, 6]);
+      ctx.beginPath();
+      ctx.arc(x, y, WARDEN_AURA, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
+
     for (const enemy of this.enemies) {
       const [x, y] = this.#pointAt(enemy.distance);
       const chilled = enemy.slowUntil > 0;
@@ -750,12 +968,28 @@ export default class Bulwark extends BaseGame {
       ctx.shadowColor = enemy.color;
       ctx.shadowBlur = 8;
       ctx.beginPath();
+      const r = enemy.radius;
       if (enemy.kind === 'tank' || enemy.kind === 'boss') {
         // Armoured things are drawn as blocks, so they read as hard to move.
-        const r = enemy.radius;
         ctx.rect(x - r, y - r, r * 2, r * 2);
+      } else if (enemy.kind === 'shade') {
+        // A diamond, and the only thing on the road that leans forward.
+        ctx.moveTo(x + r * 1.2, y);
+        ctx.lineTo(x, y - r * 0.85);
+        ctx.lineTo(x - r * 1.2, y);
+        ctx.lineTo(x, y + r * 0.85);
+        ctx.closePath();
+      } else if (enemy.kind === 'warden') {
+        for (let i = 0; i < 6; i++) {
+          const a = (i / 6) * Math.PI * 2 - Math.PI / 2;
+          const px = x + Math.cos(a) * r;
+          const py = y + Math.sin(a) * r;
+          if (i) ctx.lineTo(px, py);
+          else ctx.moveTo(px, py);
+        }
+        ctx.closePath();
       } else {
-        ctx.arc(x, y, enemy.radius, 0, Math.PI * 2);
+        ctx.arc(x, y, r, 0, Math.PI * 2);
       }
       ctx.fill();
       ctx.restore();
@@ -851,7 +1085,9 @@ export default class Bulwark extends BaseGame {
       this.text(ctx, def.key, x + w - 16.5, y + 39, { size: 9, color: '#8b93a7' });
     });
 
-    /* --- selected tower --- */
+    /* --- selected tower, or what is coming if none is --- */
+    if (!this.selectedTower) this.#drawNextWave(ctx);
+
     if (this.selectedTower) {
       const tower = this.selectedTower;
       const def = TOWERS[tower.type];

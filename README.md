@@ -55,7 +55,7 @@ And three about holding something:
 
 | Game | Genre | What it is | Worth knowing |
 | --- | --- | --- | --- |
-| **Bulwark** | Defense | Tower defense. | Enemies are tracked by *distance along the path*, not position, which turns "shoot the one closest to the exit" — the only correct targeting rule — into a single `max()`. Four towers, two upgrades each. Calling a wave early pays a bounty for the peace you sold, so the real decision is how much time to sell. |
+| **Bulwark** | Defense | Tower defense. | Enemies are tracked by *distance along the path*, not position, which turns "shoot the one closest to the exit" — the only correct targeting rule — into a single `max()`. Health scales geometrically and waves compress, because gold compounds: with linear health the demand a wave makes grew slower than the defence paying for it, and past wave six the game got easier every wave. It now arrives in named stages — armour that grows, shades that cannot be chilled, wardens that shield their neighbours — and the panel shows the next wave's roster before you call it. |
 | **Bastion** | Defense | Missile Command. | The whole game is the word *nearest*: ammunition is per battery, so the flank you have been defending runs dry first and the shot you need becomes a long arc from the wrong side. Blasts chain. Spare shells pay a bonus, which is the reason not to panic-fire. |
 | **Cascade** | Puzzle | Match three. | The chain is the game — a swap worth three is nothing, one that sets off four rounds of collapse is a level. Four in a line leaves a charged gem, five a prism, and a board with no legal swap reshuffles rather than stranding you. |
 
@@ -188,8 +188,16 @@ Two optional extras:
 ```bash
 npm run build
 npm start &
-npm run smoke
+npm run smoke      # every route and every cabinet, in a real browser
+npm run balance    # plays Bulwark headlessly and checks the curve still ends
 ```
+
+`balance-bulwark.mjs` drives the real cabinet with a scripted player that
+spends down to nothing every break and always claims the early-wave bounty,
+then reports the wave the keep falls on. It fails if a competent run survives
+past wave 45 — a tower defense that cannot be lost is not one — or falls before
+wave 12. A model can tell you the shape of a curve; only this tells you the
+game built from it behaves that way.
 
 Adding `?debug` to any `/play/:id` URL exposes the live cabinet as
 `window.__cabinet` — the running `PlayHost`, its `GameClass` and the game
