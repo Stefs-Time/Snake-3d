@@ -390,6 +390,32 @@
     display: none;
   }
 
+  /* All four destinations have to fit a 390px phone. They used to run off the
+     edge into a scroll nobody would find — "About" was simply not there. */
+  .topbar {
+    gap: 8px;
+  }
+
+  .nav {
+    margin-left: 0;
+    gap: 0;
+  }
+
+  .nav__link {
+    padding: 6px 7px;
+    font-size: 10px;
+    letter-spacing: 0.05em;
+  }
+
+  .brand__mark {
+    width: 22px;
+    height: 22px;
+  }
+
+  .topbar__tools {
+    gap: 2px;
+  }
+
   .install-btn span {
     display: none;
   }

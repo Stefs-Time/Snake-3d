@@ -99,8 +99,14 @@ the run, and what the score is counting. It pauses the game behind it, and `?`
 brings it back at any point. The HUD hint then cycles through the control lines
 rather than showing one and hiding the rest.
 
-**The controls match the device.** Every cabinet carries a second set of control
-hints for touch, so a phone is never told to press Space. A game declares the
+**The controls match the device.** On a phone the d-pad and buttons are a deck
+*below* the screen, not an overlay on it — as an overlay they were painted
+across the corner of Chomp's maze you were steering into, and every press also
+reached the canvas, so a thumb sliding off a key registered as a swipe. Turn the
+phone sideways and the deck becomes two columns flanking the cabinet. Keys are
+56px, over both Apple's 44pt minimum and Material's 48dp. Every cabinet also
+carries a second set of control hints for touch, so a phone is never told to
+press Space. A game declares the
 on-screen buttons it actually reads and they are labelled with the verb —
 `DROP`, `HOLD`, `SERVE`, `HYPER` — because "A" and "B" tell a first-time player
 nothing. Where a mechanic has no gesture equivalent the control is drawn on the

@@ -263,3 +263,43 @@ build if either drifts past 45.
 
 Also fixed: the sell button overlapped the call-wave bar by 18 pixels whenever
 a tower was selected.
+
+
+---
+
+## Wave eight — the controls come off the playfield
+
+Reported: Chomp is unusable on a phone. Driving it with real touch events
+showed the plumbing was fine — presses registered, holds registered, swipes
+queued, the games reacted. The controls were simply in the wrong place and the
+wrong size.
+
+- The d-pad was an overlay *inside* the cabinet frame, painted across the
+  bottom-left of the maze — you could not see the thing you were steering. It
+  is now a deck below the screen in portrait, and two columns flanking the
+  cabinet in landscape. On most cabinets this costs no playfield at all: a
+  phone in portrait sizes the frame by its width, so the deck fills space the
+  letterbox was wasting.
+- Keys were 42px, under both Apple's 44pt minimum and Material's 48dp. They
+  are 56px in portrait, 48px in landscape.
+- Because the controls sat inside the frame, every press also reached the
+  frame's own pointer handler, so a thumb sliding off a key registered as a
+  swipe. Moving them out removed the cross-talk.
+- A cabinet that declares no d-pad and no buttons — the pointer games — now
+  collapses the deck instead of showing an empty band.
+- The HUD is DOM text over a canvas that scales, so on a short frame it stayed
+  full size and ran into the game's own labels. It now scales from the frame's
+  real width, and the hint stays on one line rather than wrapping over the
+  bottom of Blockfall's well.
+- All four nav destinations now fit a 360px phone. "About" used to sit off the
+  edge in a horizontal scroll nobody would find.
+
+**A grid trap worth writing down.** Giving the deck `grid-row: 2` in landscape
+squashed the cabinet to a third of its height. CSS Grid places items with a
+definite position *before* auto-placed ones, so the deck claimed row 2 and the
+auto-placed screen was pushed into row 3. All three rows are explicit now.
+
+The smoke test asserts, on a phone and again turned sideways, that no control
+overlaps the playfield, none is under 44px, none is off screen, the page never
+scrolls sideways, the cabinet keeps its height, and every nav item is on the
+bar.

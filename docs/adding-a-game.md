@@ -109,6 +109,11 @@ If a mechanic has no touch equivalent at all, draw the control on the canvas —
 Sudoku's number pad, Minefield's flag chip and Lexicon's keyboard are all done
 that way, and they work identically with a mouse.
 
+The host puts the controls in their own deck below the cabinet (or flanking it
+in landscape), never on the playfield, and collapses the deck entirely for a
+game that declares no buttons and no d-pad. You do not position anything —
+declaring `touch` and `touchButtons` is the whole job.
+
 ---
 
 ## 3. Options

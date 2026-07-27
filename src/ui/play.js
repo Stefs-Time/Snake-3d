@@ -100,11 +100,15 @@ export class PlayHost {
     this.touchLayer = this.#buildTouchControls();
     this.overlayHost = h('div', { style: { display: 'contents' } });
 
+    // The touch controls are a sibling of the screen, not a child of the
+    // frame. Sitting inside it they were painted over the playfield — a d-pad
+    // across the bottom-left of Chomp's maze — and every press also reached
+    // the frame's own pointer handler, so sliding a thumb off a key registered
+    // as a swipe. In portrait they now occupy their own row below the cabinet.
     this.frame = h(
       'div.cabinet__frame',
       this.canvas,
       this.hud,
-      this.touchLayer,
       h('div.cabinet__glare'),
       this.overlayHost,
     );
@@ -141,6 +145,7 @@ export class PlayHost {
         ),
       ),
       this.screen,
+      this.touchLayer,
     );
 
     this.resizeObserver = new ResizeObserver(() => this.#fit());
@@ -177,8 +182,9 @@ export class PlayHost {
       'div.touch',
       { dataset: { scheme: 'dpad' } },
       h('div.touch__pad', ...Object.values(this.touchKeys)),
-      this.touchAction,
-      this.touchSecondary,
+      // Grouped so the pair stays together at one end of the deck, whichever
+      // of the two is actually shown.
+      h('div.touch__buttons', this.touchSecondary, this.touchAction),
     );
   }
 
@@ -335,6 +341,12 @@ export class PlayHost {
     this.frame.style.width = `${w}px`;
     this.frame.style.height = `${h2}px`;
 
+    // The HUD is DOM text over a canvas that scales, so on a small frame it
+    // stayed full size and ran into the game's own labels. Tie it to the frame
+    // instead of the viewport: 520px wide is the size it was drawn for.
+    const k = Math.max(0.58, Math.min(1, w / 520));
+    this.frame.style.setProperty('--hud-k', k.toFixed(3));
+
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     this.dpr = dpr;
 
@@ -371,6 +383,15 @@ export class PlayHost {
       'touch__action--solo',
       Boolean(labels.secondary) && !labels.action,
     );
+
+    // A deck with nothing in it is a band of wasted screen, so collapse it.
+    // The pointer games are played by tapping the board itself.
+    const scheme = this.GameClass.touch ?? 'dpad';
+    const hasPad = scheme === 'dpad' || scheme === 'move';
+    const hasButtons = Boolean(labels.action || labels.secondary);
+    this.touchLayer.hidden = !hasPad && !hasButtons;
+    this.touchLayer.dataset.deck =
+      hasPad && hasButtons ? 'both' : hasPad ? 'pad' : 'buttons';
   }
 
   /* -------------------------------------------------------------- options */

@@ -272,8 +272,86 @@ async function main() {
     if (seen[0] !== action) problems.push(`[mobile ${id}] action button is "${seen[0]}", expected "${action}"`);
     if (seen[1] !== secondary) problems.push(`[mobile ${id}] secondary button is "${seen[1]}", expected "${secondary}"`);
 
+    // The rules a phone control has to obey. The d-pad used to be painted over
+    // the playfield — on Chomp it covered the corner of the maze you were
+    // steering into — and its keys were 42px, under both Apple's 44pt minimum
+    // and Material's 48dp.
+    const layout = await phone.evaluate(() => {
+      const box = (el) => {
+        const r = el.getBoundingClientRect();
+        return { x: r.x, y: r.y, w: r.width, h: r.height };
+      };
+      const frame = box(document.querySelector('.cabinet__frame'));
+      const controls = [...document.querySelectorAll('.touch__key, .touch__action:not([hidden])')]
+        .filter((el) => el.getBoundingClientRect().width > 0)
+        .map(box);
+      const hits = (a, b) =>
+        a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+      return {
+        overPlayfield: controls.filter((c) => hits(c, frame)).length,
+        tooSmall: controls.filter((c) => c.w < 44 || c.h < 44).length,
+        offscreen: controls.filter(
+          (c) => c.x < 0 || c.y < 0 || c.x + c.w > innerWidth + 0.5 || c.y + c.h > innerHeight + 0.5,
+        ).length,
+        overflowX: document.documentElement.scrollWidth > innerWidth,
+      };
+    });
+    if (layout.overPlayfield) problems.push(`[mobile ${id}] ${layout.overPlayfield} control(s) sit on the playfield`);
+    if (layout.tooSmall) problems.push(`[mobile ${id}] ${layout.tooSmall} control(s) smaller than 44px`);
+    if (layout.offscreen) problems.push(`[mobile ${id}] ${layout.offscreen} control(s) off screen`);
+    if (layout.overflowX) problems.push(`[mobile ${id}] page scrolls horizontally`);
+
     await phone.screenshot({ path: `${OUT}/mobile-${id}.png` });
   }
+
+  // Every destination has to be reachable without discovering a scroll.
+  await phone.goto(`${BASE}/`, { waitUntil: 'networkidle' });
+  await sleep(600);
+  const navFit = await phone.evaluate(() => {
+    const bar = document.querySelector('.topbar').getBoundingClientRect();
+    const links = [...document.querySelectorAll('.nav__link')];
+    return {
+      total: links.length,
+      clipped: links.filter((l) => {
+        const r = l.getBoundingClientRect();
+        return r.x < -0.5 || r.right > bar.width + 0.5;
+      }).map((l) => l.textContent),
+    };
+  });
+  if (navFit.clipped.length) {
+    problems.push(`[mobile] nav items off the bar: ${navFit.clipped.join(', ')}`);
+  }
+
+  // And the same controls have to survive being turned sideways.
+  await phone.setViewportSize({ width: 844, height: 390 });
+  for (const id of ['chomp', 'blockfall']) {
+    await phone.goto(`${BASE}/play/${id}`, { waitUntil: 'networkidle' });
+    await phone
+      .waitForFunction(() => !document.querySelector('.overlay__eyebrow')?.textContent?.includes('Loading'), null, { timeout: 15000 })
+      .catch(() => problems.push(`[landscape ${id}] cabinet never finished loading`));
+    await sleep(500);
+    await phone.click('.overlay--brief .btn--primary').catch(() => {});
+    await sleep(400);
+    const land = await phone.evaluate(() => {
+      const box = (el) => { const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; };
+      const frame = box(document.querySelector('.cabinet__frame'));
+      const controls = [...document.querySelectorAll('.touch__key, .touch__action:not([hidden])')]
+        .filter((el) => el.getBoundingClientRect().width > 0).map(box);
+      const hits = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+      return {
+        frameH: frame.h,
+        overPlayfield: controls.filter((c) => hits(c, frame)).length,
+        offscreen: controls.filter((c) => c.x < 0 || c.x + c.w > innerWidth + 0.5).length,
+      };
+    });
+    if (land.overPlayfield) problems.push(`[landscape ${id}] ${land.overPlayfield} control(s) on the playfield`);
+    if (land.offscreen) problems.push(`[landscape ${id}] ${land.offscreen} control(s) off screen`);
+    // The cabinet must still get most of the height; it was squashed to a
+    // third of it when the deck stole its grid row.
+    if (land.frameH < 200) problems.push(`[landscape ${id}] cabinet squashed to ${Math.round(land.frameH)}px`);
+    await phone.screenshot({ path: `${OUT}/mobile-landscape-${id}.png` });
+  }
+  await phone.setViewportSize({ width: 390, height: 844 });
   console.log(`  ✓ mobile viewport (${Object.keys(TOUCH_BUTTONS).length} cabinets, buttons labelled)`);
 
   await browser.close();

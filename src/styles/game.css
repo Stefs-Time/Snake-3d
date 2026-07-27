@@ -10,9 +10,15 @@
   overflow: hidden;
 }
 
+/* Row three is the control deck, and only a touchscreen ever gets one. */
+body.is-touch .play {
+  grid-template-rows: auto 1fr auto;
+}
+
 /* --- the strip above the screen --- */
 
 .play__bar {
+  grid-row: 1;
   display: flex;
   align-items: center;
   gap: 14px;
@@ -177,6 +183,10 @@
 /* --- the screen itself --- */
 
 .play__screen {
+  /* Explicit, because grid places definite-position items before auto-placed
+     ones: the deck claiming row 2 in landscape pushed the screen into row 3
+     and squashed the cabinet to a third of its height. */
+  grid-row: 2;
   position: relative;
   display: grid;
   place-items: center;
@@ -246,7 +256,8 @@
   pointer-events: none;
   display: grid;
   grid-template-rows: auto 1fr auto;
-  padding: 12px 14px;
+  /* --hud-k is set by the host from the frame's real width. */
+  padding: calc(12px * var(--hud-k, 1)) calc(14px * var(--hud-k, 1));
   font-family: var(--font-mono);
 }
 
@@ -266,7 +277,7 @@
 }
 
 .hud__label {
-  font-size: 9px;
+  font-size: calc(9px * var(--hud-k, 1));
   letter-spacing: 0.28em;
   text-transform: uppercase;
   color: var(--ink-dim);
@@ -274,7 +285,7 @@
 
 .hud__value {
   margin-top: 2px;
-  font-size: clamp(16px, 2.6vw, 24px);
+  font-size: calc(clamp(16px, 2.6vw, 24px) * var(--hud-k, 1));
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   line-height: 1;
@@ -301,8 +312,8 @@
 }
 
 .hud__life {
-  width: 9px;
-  height: 9px;
+  width: calc(9px * var(--hud-k, 1));
+  height: calc(9px * var(--hud-k, 1));
   border-radius: 2px;
   background: var(--accent);
   box-shadow: 0 0 8px var(--accent-glow);
@@ -321,19 +332,21 @@
 }
 
 .hud__hint {
-  font-size: 10px;
+  /* One line, always. Wrapped to two it covered the bottom of Blockfall's
+     well; the full text is a ? away on the how-to-play card. */
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: calc(10px * var(--hud-k, 1));
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--ink-dim);
   opacity: 0.75;
 }
 
-/* On a touchscreen the d-pad and buttons occupy the bottom of the frame, so
-   the hint has to sit above them or it is read through a button. */
-body.is-touch .cabinet__frame[data-scheme="dpad"] .hud__bottom,
-body.is-touch .cabinet__frame[data-scheme="move"] .hud__bottom {
-  padding-bottom: 152px;
-}
+/* Nothing overlays the playfield any more, in either orientation, so the hint
+   needs no clearance — it just sits at the foot of the screen as designed. */
 
 /* The frame counter is a developer readout; a phone has no room for it. */
 body.is-touch .hud__bottom .hud__hint:last-child {
@@ -719,98 +732,118 @@ body.is-touch .hud__bottom .hud__hint:last-child {
 
 /* ====================================================== touch controls == */
 
+/* --- on-screen controls -------------------------------------------------
+
+   The controls are a row below the cabinet, not an overlay on it. As an
+   overlay the d-pad sat across the bottom-left of Chomp's maze — you could not
+   see the thing you were steering — and every press also reached the frame's
+   own pointer handler, so a thumb sliding off a key registered as a swipe.
+   Keys were also 42px, under both Apple's 44pt and Material's 48dp minimum.
+
+   On most cabinets this costs nothing: a phone in portrait sizes the frame by
+   its width, so the deck fills space the letterbox was wasting anyway. */
+
 .touch {
-  position: absolute;
-  inset: 0;
-  z-index: 10;
-  pointer-events: none;
+  display: none;
+  grid-row: 3;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 18px calc(12px + var(--safe-b));
+  border-top: 1px solid var(--line);
+  background:
+    linear-gradient(to bottom, color-mix(in srgb, var(--accent) 4%, transparent), transparent);
+}
+
+body.is-touch .touch:not([hidden]) {
+  display: flex;
+}
+
+/* With only one group in the deck it centres; a lone d-pad hugging the left
+   edge of a phone leaves a hand-width of nothing beside it. */
+.touch[data-deck="pad"],
+.touch[data-deck="buttons"] {
+  justify-content: center;
+}
+
+.touch[data-deck="pad"] .touch__buttons,
+.touch[data-deck="buttons"] .touch__pad {
   display: none;
 }
 
-body.is-touch .touch {
-  display: block;
-}
-
 .touch__pad {
-  position: absolute;
-  left: 14px;
-  bottom: calc(14px + var(--safe-b));
-  width: 132px;
-  height: 132px;
-  pointer-events: auto;
+  position: relative;
+  flex: 0 0 auto;
+  width: 168px;
+  height: 168px;
 }
 
 .touch__key {
   position: absolute;
   display: grid;
   place-items: center;
-  width: 42px;
-  height: 42px;
+  width: 56px;
+  height: 56px;
   border: 1px solid var(--line-strong);
-  border-radius: 10px;
-  background: rgba(12, 15, 22, 0.55);
-  backdrop-filter: blur(6px);
+  border-radius: 14px;
+  background: rgba(12, 15, 22, 0.7);
   color: var(--ink-dim);
   transition: background var(--fast), color var(--fast), transform var(--fast);
 }
 
 .touch__key svg {
-  width: 16px;
-  height: 16px;
+  width: 20px;
+  height: 20px;
 }
 
 .touch__key.is-down {
   background: var(--accent-soft);
   border-color: var(--accent);
   color: var(--accent);
-  transform: scale(0.92);
+  transform: scale(0.94);
 }
 
-.touch__key[data-dir="up"] { left: 45px; top: 0; }
-.touch__key[data-dir="down"] { left: 45px; bottom: 0; }
-.touch__key[data-dir="left"] { left: 0; top: 45px; }
-.touch__key[data-dir="right"] { right: 0; top: 45px; }
+.touch__key[data-dir="up"] { left: 56px; top: 0; }
+.touch__key[data-dir="down"] { left: 56px; bottom: 0; }
+.touch__key[data-dir="left"] { left: 0; top: 56px; }
+.touch__key[data-dir="right"] { right: 0; top: 56px; }
+
+.touch__buttons {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
 
 .touch__action {
-  position: absolute;
-  right: 18px;
-  bottom: calc(28px + var(--safe-b));
   display: grid;
   place-items: center;
-  width: 78px;
-  height: 78px;
+  width: 88px;
+  height: 88px;
   border: 1px solid color-mix(in srgb, var(--accent) 50%, transparent);
   border-radius: 99px;
-  background: color-mix(in srgb, var(--accent) 14%, rgba(12, 15, 22, 0.55));
-  backdrop-filter: blur(6px);
+  background: color-mix(in srgb, var(--accent) 14%, rgba(12, 15, 22, 0.7));
   color: var(--accent);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  pointer-events: auto;
   transition: transform var(--fast), background var(--fast);
 }
 
 .touch__action.is-down {
-  transform: scale(0.92);
+  transform: scale(0.94);
   background: color-mix(in srgb, var(--accent) 34%, transparent);
 }
 
 .touch__action--secondary {
-  right: 108px;
-  bottom: calc(20px + var(--safe-b));
-  width: 56px;
-  height: 56px;
-  font-size: 9px;
+  width: 68px;
+  height: 68px;
+  font-size: 10px;
   border-color: var(--line-strong);
-  background: rgba(12, 15, 22, 0.55);
+  background: rgba(12, 15, 22, 0.7);
   color: var(--ink-dim);
 }
-
-/* Each scheme shows only the controls its game actually uses, so nothing
-   sits on the playfield doing nothing. */
 
 /* swipe / aim / point / none: no d-pad. */
 .touch[data-scheme="swipe"] .touch__pad,
@@ -826,13 +859,86 @@ body.is-touch .touch {
   display: none;
 }
 
-/* A secondary button with no primary beside it takes the primary's place
-   rather than floating in the gap where the primary would have been. */
+/* A lone secondary button is the only control there is, so it takes the
+   primary's size rather than staying the small one of a pair. */
 .touch__action--secondary.touch__action--solo {
-  right: 18px;
-  bottom: calc(28px + var(--safe-b));
-  width: 66px;
-  height: 66px;
+  width: 88px;
+  height: 88px;
+  font-size: 11px;
+}
+
+/* Landscape on a phone has almost no vertical space and plenty of horizontal,
+   so there the deck becomes two columns flanking the screen instead of a band
+   beneath it. `display: contents` hands the pad and the buttons straight to
+   the page grid, which keeps them out of the playfield by construction rather
+   than by overlaying it and hoping. */
+@media (orientation: landscape) and (max-height: 560px) {
+  body.is-touch .play {
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .play__bar {
+    grid-column: 1 / -1;
+  }
+
+  .play__screen {
+    grid-column: 2;
+  }
+
+  body.is-touch .touch:not([hidden]) {
+    display: contents;
+  }
+
+  .touch__pad,
+  .touch__buttons {
+    grid-row: 2;
+    align-self: center;
+    margin: 0 12px;
+  }
+
+  .touch__pad {
+    grid-column: 1;
+    width: 144px;
+    height: 144px;
+  }
+
+  .touch__buttons {
+    grid-column: 3;
+    flex-direction: column-reverse;
+    gap: 10px;
+  }
+
+  .touch__key {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+  }
+
+  .touch__key svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .touch__key[data-dir="up"] { left: 48px; top: 0; }
+  .touch__key[data-dir="down"] { left: 48px; bottom: 0; }
+  .touch__key[data-dir="left"] { left: 0; top: 48px; }
+  .touch__key[data-dir="right"] { right: 0; top: 48px; }
+
+  .touch__action {
+    width: 72px;
+    height: 72px;
+  }
+
+  .touch__action--secondary {
+    width: 56px;
+    height: 56px;
+  }
+
+  .touch__action--secondary.touch__action--solo {
+    width: 72px;
+    height: 72px;
+  }
 }
 
 /* ========================================================== responsive == */
