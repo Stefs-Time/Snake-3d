@@ -40,13 +40,14 @@ export default class Twenty48 extends BaseGame {
   static height = H;
   static renderer = '2d';
   static touch = 'swipe';
+  static touchButtons = { secondary: 'UNDO' };
   static smooth = true;
   static hudPad = { top: 36, bottom: 28 };
   static hudLabels = { score: 'Score', secondary: 'Best tile' };
 
   setup() {
     this.host.setSecondaryLabel('Best tile');
-    this.host.setHint('Arrows or swipe · U to undo');
+    this.host.setHint('Arrows or swipe · U to undo', 'Swipe to slide · UNDO takes one back');
     this.setLives(1);
 
     this.grid = Array.from({ length: N }, () => Array(N).fill(0));

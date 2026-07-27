@@ -20,15 +20,26 @@ const DEFAULTS = {
   plays: {},
   /** Per-cabinet option choices: gameId -> { optionId: value }. */
   options: {},
+  /** Cabinets whose how-to-play card has been shown: gameId -> true. */
+  briefed: {},
 };
+
+/**
+ * A fresh state object with its own maps. Spreading DEFAULTS alone would hand
+ * out the *same* `best` / `options` objects every time, so writing a score
+ * would quietly mutate the defaults.
+ */
+function freshState() {
+  return { ...DEFAULTS, best: {}, plays: {}, options: {}, briefed: {} };
+}
 
 function read() {
   try {
     const raw = localStorage.getItem(KEY);
-    if (!raw) return { ...DEFAULTS };
-    return { ...DEFAULTS, ...JSON.parse(raw) };
+    if (!raw) return freshState();
+    return { ...freshState(), ...JSON.parse(raw) };
   } catch {
-    return { ...DEFAULTS };
+    return freshState();
   }
 }
 
@@ -91,12 +102,25 @@ export const settings = {
     return value;
   },
 
+  /* --- the how-to-play card, shown once per cabinet --- */
+
+  hasBriefed(gameId) {
+    return Boolean(state.briefed?.[gameId]);
+  },
+
+  markBriefed(gameId) {
+    if (state.briefed?.[gameId]) return;
+    state.briefed ??= {};
+    state.briefed[gameId] = true;
+    persist();
+  },
+
   totalPlays() {
     return Object.values(state.plays).reduce((a, b) => a + b, 0);
   },
 
   reset() {
-    state = { ...DEFAULTS, best: {}, plays: {} };
+    state = freshState();
     persist();
     emit('*', state);
   },

@@ -26,13 +26,14 @@ export default class Paddles extends BaseGame {
   static height = H;
   static renderer = '2d';
   static touch = 'dpad';
+  static touchButtons = { action: 'SERVE' };
   static smooth = true;
   static hudPad = { top: 34, bottom: 24 };
   static hudLabels = { score: 'Score', secondary: 'Match' };
 
   setup() {
     this.host.setSecondaryLabel('Match');
-    this.host.setHint('↑ ↓ or drag to move · Space to serve');
+    this.host.setHint('↑ ↓ or drag to move · Space to serve', 'Drag to move · SERVE to play the ball');
     this.setLives(1);
 
     this.player = { y: H / 2, score: 0, velocity: 0 };

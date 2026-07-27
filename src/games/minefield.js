@@ -38,7 +38,8 @@ export default class Minefield extends BaseGame {
 
   setup() {
     this.host.setSecondaryLabel('Board');
-    this.host.setHint('Click to clear · F or right-click to flag');
+    this.host.setHint('Click to clear · F or right-click to flag',
+      'Tap to clear · the FLAG chip plants flags');
     this.setLives(3);
 
     this.board = 1;

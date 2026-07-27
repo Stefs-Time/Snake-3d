@@ -14,6 +14,9 @@ import { toast } from './toast.js';
 /** The live host, so the router can tear it down on navigation. */
 let active = null;
 
+/** How long each HUD control hint holds before the next one takes over. */
+const HINT_PERIOD = 6200;
+
 export function renderPlay(params) {
   destroyPlay();
   const def = getGame(params.id);
@@ -45,13 +48,29 @@ export class PlayHost {
     this.input = null;
     this.paused = false;
     this.finished = false;
+    this.briefing = false;
     this.startedAt = 0;
+    this.isTouch = isTouchDevice();
+    /** The HUD hint cycles through these; a game's own hint takes slot 0. */
+    this.hintLines = [...this.controlLines];
+    this.hintIndex = 0;
 
     setAccent(def.accent, def.accent2);
-    document.body.classList.toggle('is-touch', isTouchDevice());
+    document.body.classList.toggle('is-touch', this.isTouch);
 
     this.#buildDom();
     this.#loadGame();
+  }
+
+  /**
+   * The control lines to show. "Space to serve" is a lie on a phone, so every
+   * cabinet carries a touch phrasing that names the gesture and the on-screen
+   * button instead of a key that is not there.
+   */
+  get controlLines() {
+    return this.isTouch && this.def.controlsTouch?.length
+      ? this.def.controlsTouch
+      : this.def.controls;
   }
 
   /* ------------------------------------------------------------------ dom */
@@ -65,7 +84,7 @@ export class PlayHost {
     this.hudSecondaryLabel = h('div.hud__label', 'Level');
     this.hudLives = h('div.hud__lives');
     this.hudBanner = h('div.hud__banner');
-    this.hudHint = h('div.hud__hint', def.controls[0]);
+    this.hudHint = h('div.hud__hint', this.controlLines[0]);
 
     this.hud = h(
       'div.hud',
@@ -104,6 +123,10 @@ export class PlayHost {
           'div.play__bar-tools',
           (this.optionsBar = h('div.play__options')),
           h('button.icon-btn', {
+            type: 'button', 'aria-label': 'How to play', title: 'How to play (?)',
+            onclick: () => this.showBriefing(),
+          }, icon('info', { size: 18 })),
+          h('button.icon-btn', {
             type: 'button', 'aria-label': 'Pause', title: 'Pause (P)',
             onclick: () => this.togglePause(),
           }, icon('pause', { size: 18 })),
@@ -122,6 +145,18 @@ export class PlayHost {
 
     this.resizeObserver = new ResizeObserver(() => this.#fit());
     this.resizeObserver.observe(this.screen);
+
+    // `?` opens the how-to-play card from anywhere. It is deliberately not a
+    // letter: every letter on the keyboard is already spoken for by some game.
+    this.onHelpKey = (e) => {
+      if (e.key !== '?' || e.repeat) return;
+      const t = e.target;
+      if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) return;
+      e.preventDefault();
+      if (this.briefing) this.dismissBriefing();
+      else this.showBriefing();
+    };
+    window.addEventListener('keydown', this.onHelpKey);
   }
 
   #buildTouchControls() {
@@ -174,10 +209,14 @@ export class PlayHost {
     const GameClass = this.GameClass;
     this.finished = false;
     this.paused = false;
+    this.#endBriefing();
     this.#clearOverlay();
 
     this.canvas.classList.toggle('smooth', GameClass.smooth !== false);
     this.touchLayer.dataset.scheme = GameClass.touch ?? 'dpad';
+    // The HUD needs the scheme too, so its hint can clear the d-pad.
+    this.frame.dataset.scheme = GameClass.touch ?? 'dpad';
+    this.#labelTouchButtons();
     this.#renderOptions();
 
     // A fresh Input per run so no key is stuck down from the last one.
@@ -197,7 +236,13 @@ export class PlayHost {
     this.setLives(this.game.lives);
     this.hudSecondaryLabel.textContent = GameClass.hudLabels?.secondary ?? 'Level';
 
+    // Reset the hint cycle before setup, so a hint the game sets there wins.
+    this.hintLines = [...this.controlLines];
+    this.hintIndex = 0;
+    this.#paintHint(this.hintLines[0]);
+
     this.game.setup();
+    this.#startHintCycle();
 
     this.loop?.stop();
     this.loop = new Loop(
@@ -214,6 +259,9 @@ export class PlayHost {
     // `?debug` exposes the running cabinet for the console and the smoke
     // tests. Off by default so nothing leaks into a normal session.
     if (location.search.includes('debug')) window.__cabinet = this;
+
+    // First visit to this cabinet: explain it before it starts moving.
+    if (!settings.hasBriefed(this.def.id)) this.showBriefing({ auto: true });
   }
 
   /* ------------------------------------------------------------ loop hooks */
@@ -302,6 +350,29 @@ export class PlayHost {
     }
   }
 
+  /**
+   * The on-screen buttons used to be a fixed "A" and "B" shown or hidden by
+   * touch scheme, which meant a phone could not reach Blockfall's hold slot,
+   * Vector's hyperspace or Solitaire's undo at all — and where a button did
+   * appear, its letter said nothing about what it did. Each game now names
+   * the buttons it reads, and only those appear.
+   */
+  #labelTouchButtons() {
+    const labels = this.GameClass.touchButtons ?? {};
+    const set = (el, text) => {
+      el.hidden = !text;
+      if (!text) return;
+      el.textContent = text;
+      el.setAttribute('aria-label', text);
+    };
+    set(this.touchAction, labels.action);
+    set(this.touchSecondary, labels.secondary);
+    this.touchSecondary.classList.toggle(
+      'touch__action--solo',
+      Boolean(labels.secondary) && !labels.action,
+    );
+  }
+
   /* -------------------------------------------------------------- options */
 
   /**
@@ -330,15 +401,29 @@ export class PlayHost {
         ),
       );
 
+      // The hint used to live in a `title` attribute, which a touchscreen can
+      // never show, and in a toast *after* the change was already made. It is
+      // now visible next to the choice it describes, before you commit to it.
       this.optionsBar.append(
         h(
-          'div.play__opt',
-          { role: 'group', 'aria-label': def.label },
-          h('span.play__opt-label', def.label),
-          ...buttons,
+          'div.play__opt-wrap',
+          h(
+            'div.play__opt',
+            { role: 'group', 'aria-label': def.label },
+            h('span.play__opt-label', def.label),
+            ...buttons,
+          ),
+          h('div.play__opt-hint', this.#optionHintFor(def)),
         ),
       );
     }
+  }
+
+  /** The hint under the segmented control, describing the live choice. */
+  #optionHintFor(def) {
+    const current = settings.getOption(this.def.id, def.id, def.default);
+    const choice = def.choices.find((c) => c.value === current);
+    return choice?.hint ?? '';
   }
 
   #chooseOption(def, value) {
@@ -382,8 +467,40 @@ export class PlayHost {
     );
   }
 
-  setHint(text) {
+  /**
+   * A game's own hint is contextual and usually better than anything in the
+   * catalog, so it takes the first slot rather than cancelling the cycle — the
+   * other two control lines still get their turn.
+   */
+  setHint(text, touchText) {
+    const shown = (this.isTouch && touchText) || text;
+    this.hintLines = [shown, ...this.controlLines.filter((line) => line !== shown)];
+    this.hintIndex = 0;
+    this.#paintHint(shown);
+    this.#startHintCycle();
+  }
+
+  #paintHint(text) {
+    if (this.hudHint.textContent === text) return;
     this.hudHint.textContent = text;
+    this.hudHint.classList.remove('is-fresh');
+    void this.hudHint.offsetWidth; // restart the fade
+    this.hudHint.classList.add('is-fresh');
+  }
+
+  /**
+   * Every game writes three control lines into the catalog and only the first
+   * was ever shown. They now rotate, so the whole control scheme surfaces
+   * without costing a pixel of screen.
+   */
+  #startHintCycle() {
+    clearInterval(this.hintTimer);
+    if (this.hintLines.length < 2) return;
+    this.hintTimer = setInterval(() => {
+      if (this.paused || this.briefing || this.finished) return;
+      this.hintIndex = (this.hintIndex + 1) % this.hintLines.length;
+      this.#paintHint(this.hintLines[this.hintIndex]);
+    }, HINT_PERIOD);
   }
 
   banner(text) {
@@ -393,10 +510,127 @@ export class PlayHost {
     this.hudBanner.classList.add('is-shown');
   }
 
+  /* ------------------------------------------------------------- briefing */
+
+  /**
+   * The how-to-play card. Shown once per cabinet on the first visit and on
+   * demand after that, built entirely from catalog data that until now only
+   * appeared on the About page — or, in the case of two thirds of the control
+   * lines, nowhere at all.
+   */
+  showBriefing({ auto = false } = {}) {
+    if (this.briefing || this.finished || !this.loop) return;
+    this.briefing = true;
+    this.resumePausedAfterBriefing = this.paused;
+    this.loop.setPaused(true);
+    settings.markBriefed(this.def.id);
+    if (!auto) sfx.play('select');
+
+    this.briefKeys = (e) => {
+      if (!['Escape', 'Enter', ' ', 'p', 'P'].includes(e.key)) return;
+      e.preventDefault();
+      this.dismissBriefing();
+    };
+    window.addEventListener('keydown', this.briefKeys);
+
+    this.#showOverlay(this.#briefingOverlay(auto));
+  }
+
+  dismissBriefing() {
+    if (!this.briefing) return;
+    this.#endBriefing();
+    sfx.play(this.resumePausedAfterBriefing ? 'back' : 'coin');
+
+    // Reopening the card from a paused game returns you to the pause screen,
+    // not straight back into play.
+    if (this.resumePausedAfterBriefing) {
+      this.#showOverlay(this.#pauseOverlay());
+    } else {
+      this.input?.reset();
+      this.loop.setPaused(false);
+      this.#clearOverlay();
+    }
+  }
+
+  #endBriefing() {
+    if (this.briefKeys) window.removeEventListener('keydown', this.briefKeys);
+    this.briefKeys = null;
+    this.briefing = false;
+  }
+
+  #briefingOverlay(auto) {
+    const def = this.def;
+    const best = settings.bestFor(def.id);
+    const optionDefs = this.GameClass?.options ?? [];
+
+    const section = (heading, ...rows) =>
+      h('div.brief__section', h('div.brief__heading', heading), ...rows);
+
+    return h(
+      'div.overlay.overlay--brief',
+      h(
+        'div.overlay__panel.overlay__panel--brief',
+        h('div.overlay__eyebrow', auto ? 'First visit' : 'How to play'),
+        h('div.overlay__title', def.title),
+        h('p.brief__tagline', def.tagline),
+
+        // Only the middle scrolls: on a short cabinet the Start button has to
+        // stay in view, or the card looks broken rather than long.
+        h(
+          'div.brief__body.scroller',
+          h('p.brief__blurb', def.blurb),
+
+          section(
+            'Controls',
+            h('ul.brief__list', ...this.controlLines.map((line) => h('li', line))),
+          ),
+
+          optionDefs.length
+          ? section(
+              'Options',
+              h(
+                'ul.brief__list',
+                ...optionDefs.map((opt) => {
+                  const current = settings.getOption(def.id, opt.id, opt.default);
+                  const choice = opt.choices.find((c) => c.value === current);
+                  return h(
+                    'li',
+                    h('b', `${opt.label}: ${choice?.label ?? current}`),
+                    choice?.hint ? ` — ${choice.hint}` : '',
+                  );
+                }),
+              ),
+              h('div.brief__note', 'Change these in the bar above the screen at any time.'),
+            )
+            : null,
+
+          section(
+            'Scoring',
+            h(
+              'div.brief__scoring',
+              h('span', def.scoreLabel),
+              best > 0
+                ? h('span.brief__best', `Your best · ${fmt(best)}`)
+                : h('span.brief__best', 'No run yet'),
+            ),
+          ),
+        ),
+
+        h(
+          'div.overlay__actions',
+          h('button.btn.btn--primary', { type: 'button', onclick: () => this.dismissBriefing() },
+            icon('play', { size: 14, fill: true }), auto ? 'Start' : 'Back to the game'),
+          h('a.btn.btn--ghost', { href: `/scores/${def.id}` }, icon('trophy', { size: 14 }), 'Scores'),
+        ),
+        h('div.overlay__hint', 'Press ? for this card at any time'),
+      ),
+    );
+  }
+
   /* -------------------------------------------------------- run lifecycle */
 
   togglePause() {
-    if (this.finished || !this.loop) return;
+    if (this.finished || !this.loop || this.briefing) return;
     this.paused = !this.paused;
     this.loop.setPaused(this.paused);
     if (this.paused) {
@@ -404,12 +638,14 @@ export class PlayHost {
       this.#showOverlay(this.#pauseOverlay());
     } else {
       sfx.play('select');
+      this.input?.reset();
       this.#clearOverlay();
     }
   }
 
   restart() {
     if (!this.GameClass) return;
+    this.#endBriefing();
     this.game?.teardown();
     this.loop?.stop();
     sfx.play('coin');
@@ -632,6 +868,10 @@ export class PlayHost {
     this.input?.destroy();
     this.resizeObserver?.disconnect();
     this.initialsCleanup?.();
+    this.#endBriefing();
+    clearInterval(this.hintTimer);
+    if (this.onHelpKey) window.removeEventListener('keydown', this.onHelpKey);
+    this.onHelpKey = null;
     document.body.classList.remove('is-touch');
     this.game = null;
   }

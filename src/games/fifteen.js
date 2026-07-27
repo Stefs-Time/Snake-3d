@@ -44,7 +44,8 @@ export default class Fifteen extends BaseGame {
 
   setup() {
     this.host.setSecondaryLabel('Puzzle');
-    this.host.setHint('Click a tile next to the gap · arrows also slide');
+    this.host.setHint('Click a tile next to the gap · arrows also slide',
+      'Tap a tile next to the gap');
     this.setLives(1);
 
     this.puzzleNo = 1;

@@ -38,13 +38,14 @@ export default class Bricks extends BaseGame {
   static height = H;
   static renderer = '2d';
   static touch = 'aim';
+  static touchButtons = { action: 'FIRE' };
   static smooth = true;
   static hudPad = { top: 30, bottom: 20 };
   static hudLabels = { score: 'Score', secondary: 'Level' };
 
   setup() {
     this.host.setSecondaryLabel('Level');
-    this.host.setHint('← → or drag · Space to launch');
+    this.host.setHint('← → or drag · Space to launch', 'Drag to steer · FIRE to launch');
 
     this.level = 1;
     this.setLives(3);

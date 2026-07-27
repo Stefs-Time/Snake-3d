@@ -39,7 +39,8 @@ export default class Simon extends BaseGame {
 
   setup() {
     this.host.setSecondaryLabel('Sequence');
-    this.host.setHint('Watch, then repeat · click a pad or press Q W A S');
+    this.host.setHint('Watch, then repeat · click a pad or press Q W A S',
+      'Watch, then repeat · tap a pad');
     this.setLives(STRIKES);
 
     this.sequence = [];

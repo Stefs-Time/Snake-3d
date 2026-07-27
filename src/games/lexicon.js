@@ -54,7 +54,8 @@ export default class Lexicon extends BaseGame {
 
   setup() {
     this.host.setSecondaryLabel('Solved');
-    this.host.setHint('Type a five-letter word · Enter to submit');
+    this.host.setHint('Type a five-letter word · Enter to submit',
+      'Tap the keyboard below · ENTER to submit');
     this.setLives(3);
 
     this.solved = 0;

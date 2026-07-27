@@ -45,7 +45,8 @@ export default class TicTacToe extends BaseGame {
 
   setup() {
     this.host.setSecondaryLabel('Match');
-    this.host.setHint('Click a square · first to three takes the match');
+    this.host.setHint('Click a square · first to three takes the match',
+      'Tap a square · first to three takes the match');
     this.setLives(3);
 
     this.match = 1;

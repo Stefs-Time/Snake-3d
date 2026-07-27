@@ -47,6 +47,7 @@ export default class Solitaire extends BaseGame {
   static height = H;
   static renderer = '2d';
   static touch = 'point';
+  static touchButtons = { secondary: 'UNDO' };
   static smooth = true;
   static hudPad = { top: 34, bottom: 24 };
   static hudLabels = { score: 'Score', secondary: 'Moves' };
@@ -97,10 +98,10 @@ export default class Solitaire extends BaseGame {
   }
 
   #applyDrawHint() {
+    const draw = this.drawCount === 1 ? 'one' : 'three';
     this.host.setHint(
-      this.drawCount === 1
-        ? 'Draw one · click a card, then its destination · U to undo'
-        : 'Draw three · click a card, then its destination · U to undo',
+      `Draw ${draw} · click a card, then its destination · U to undo`,
+      `Draw ${draw} · tap a card, then its destination · UNDO steps back`,
     );
   }
 

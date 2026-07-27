@@ -44,7 +44,8 @@ export default class LightsOut extends BaseGame {
 
   setup() {
     this.host.setSecondaryLabel('Puzzle');
-    this.host.setHint('Click a light — it toggles with its neighbours');
+    this.host.setHint('Click a light — it toggles with its neighbours',
+      'Tap a light — it toggles with its neighbours');
     this.setLives(3);
 
     this.puzzleNo = 1;

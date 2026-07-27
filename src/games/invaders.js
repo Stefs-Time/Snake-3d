@@ -33,13 +33,14 @@ export default class Invaders extends BaseGame {
   static height = H;
   static renderer = '2d';
   static touch = 'dpad';
+  static touchButtons = { action: 'FIRE' };
   static smooth = true;
   static hudPad = { top: 30, bottom: 20 };
   static hudLabels = { score: 'Score', secondary: 'Wave' };
 
   setup() {
     this.host.setSecondaryLabel('Wave');
-    this.host.setHint('← → to move · Space to fire');
+    this.host.setHint('← → to move · Space to fire', 'Pad to move · FIRE to shoot');
 
     this.wave = 1;
     this.setLives(3);

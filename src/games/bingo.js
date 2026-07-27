@@ -47,7 +47,7 @@ export default class Bingo extends BaseGame {
 
   setup() {
     this.host.setSecondaryLabel('Lines');
-    this.host.setHint('Click your numbers as they are called');
+    this.host.setHint('Click your numbers as they are called', 'Tap your numbers as they are called');
     this.setLives(3);
 
     this.round = 1;

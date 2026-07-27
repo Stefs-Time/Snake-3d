@@ -67,13 +67,14 @@ export default class Blockfall extends BaseGame {
   static height = BOARD_H + 40;
   static renderer = '2d';
   static touch = 'dpad';
+  static touchButtons = { action: 'DROP', secondary: 'HOLD' };
   static smooth = true;
   static hudPad = { top: 34, bottom: 26 };
   static hudLabels = { score: 'Score', secondary: 'Lines' };
 
   setup() {
     this.host.setSecondaryLabel('Lines');
-    this.host.setHint('↑ rotate · Space hard drop · C hold');
+    this.host.setHint('↑ rotate · Space hard drop · C hold', 'Pad up rotates · DROP · HOLD');
     this.setLives(1);
 
     this.boardX = PANEL + 16;

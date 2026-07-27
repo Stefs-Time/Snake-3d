@@ -57,6 +57,21 @@ function watch(page, label) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/** Cabinets whose how-to-play card gets a screenshot, one per genre shape. */
+const BRIEF_SHOTS = ['snake3d', 'bulwark', 'reversi', 'solitaire'];
+
+/** What the on-screen buttons must say on a phone, per cabinet. */
+const TOUCH_BUTTONS = {
+  blockfall: ['DROP', 'HOLD'],
+  vector: ['FIRE', 'HYPER'],
+  invaders: ['FIRE', null],
+  paddles: ['SERVE', null],
+  bricks: ['FIRE', null],
+  twenty48: [null, 'UNDO'],
+  solitaire: [null, 'UNDO'],
+  chomp: [null, null],
+};
+
 async function main() {
   const browser = await chromium.launch({
     executablePath: EXECUTABLE,
@@ -99,6 +114,41 @@ async function main() {
 
     await sleep(700);
 
+    // First visit to a cabinet must explain itself before it moves. The card
+    // carries the blurb and every control line, and the run stays paused
+    // behind it until it is dismissed.
+    const brief = await page.$('.overlay--brief');
+    if (!brief) {
+      problems.push(`[${game.id}] no how-to-play card on the first visit`);
+    } else {
+      const lines = await page.$$eval('.overlay--brief .brief__list li', (els) =>
+        els.map((el) => el.textContent.trim()),
+      );
+      for (const line of game.controls) {
+        if (!lines.includes(line)) problems.push(`[${game.id}] card is missing control line "${line}"`);
+      }
+      if (BRIEF_SHOTS.includes(game.id)) {
+        await page.screenshot({ path: `${OUT}/brief-${game.id}.png` });
+      }
+      await page.click('.overlay--brief .btn--primary');
+      await sleep(300);
+      if (await page.$('.overlay--brief')) problems.push(`[${game.id}] card would not dismiss`);
+    }
+
+    // Second visit: it must not interrupt again, but ? must bring it back.
+    await page.goto(`${BASE}/play/${game.id}?debug`, { waitUntil: 'networkidle' });
+    await page
+      .waitForFunction(() => !document.querySelector('.overlay__eyebrow')?.textContent?.includes('Loading'), null, { timeout: 15000 })
+      .catch(() => problems.push(`[${game.id}] cabinet never finished loading on the second visit`));
+    await sleep(500);
+    if (await page.$('.overlay--brief')) problems.push(`[${game.id}] card shown again after being seen`);
+    await page.keyboard.press('Shift+Slash');
+    await sleep(250);
+    if (!(await page.$('.overlay--brief'))) problems.push(`[${game.id}] ? did not reopen the card`);
+    await page.keyboard.press('Escape');
+    await sleep(250);
+    if (await page.$('.overlay--brief')) problems.push(`[${game.id}] Escape did not close the card`);
+
     // Poke it: a few directions, a few actions.
     for (const key of ['ArrowRight', 'Space', 'ArrowUp', 'ArrowLeft', 'Space', 'ArrowDown']) {
       await page.keyboard.press(key);
@@ -132,6 +182,20 @@ async function main() {
     // The score readout should exist and be a number.
     const score = await page.textContent('.hud__value').catch(() => null);
     if (score == null) problems.push(`[${game.id}] no HUD score element`);
+
+    // And the cabinet must actually be *playing*. A score of 0 is legitimate
+    // for a puzzle nobody solved, but a paused loop is not — checking only
+    // that the HUD exists is how a cabinet stuck behind the pause overlay
+    // passed as healthy.
+    const state = await page.evaluate(() => {
+      const c = window.__cabinet;
+      return {
+        overlay: document.querySelector('.overlay .overlay__eyebrow')?.textContent ?? null,
+        stalled: c ? c.paused || c.briefing || (c.loop?.paused && !c.finished) : null,
+      };
+    });
+    if (state.stalled === null) problems.push(`[${game.id}] debug hook missing, cannot check the loop`);
+    else if (state.stalled) problems.push(`[${game.id}] loop is stalled after play (overlay: ${state.overlay})`);
 
     await page.screenshot({ path: `${OUT}/game-${game.id}.png` });
     console.log(`  ✓ /play/${game.id.padEnd(10)} -> game-${game.id}.png  (score ${score})`);
@@ -175,10 +239,42 @@ async function main() {
   await phone.goto(`${BASE}/`, { waitUntil: 'networkidle' });
   await sleep(1000);
   await phone.screenshot({ path: `${OUT}/mobile-hub.png` });
-  await phone.goto(`${BASE}/play/chomp`, { waitUntil: 'networkidle' });
-  await sleep(2200);
-  await phone.screenshot({ path: `${OUT}/mobile-chomp.png` });
-  console.log('  ✓ mobile viewport');
+  // Every on-screen button a phone gets must be present, labelled with what it
+  // does, and reachable — the point of naming them per cabinet is that "A" and
+  // "B" told the player nothing, and two games had no button at all.
+  for (const [id, [action, secondary]] of Object.entries(TOUCH_BUTTONS)) {
+    await phone.goto(`${BASE}/play/${id}`, { waitUntil: 'networkidle' });
+    await phone
+      .waitForFunction(() => !document.querySelector('.overlay__eyebrow')?.textContent?.includes('Loading'), null, { timeout: 15000 })
+      .catch(() => problems.push(`[mobile ${id}] cabinet never finished loading`));
+    await sleep(600);
+
+    // The card must speak touch, not keyboard.
+    const lines = await phone.$$eval('.overlay--brief .brief__list li', (els) =>
+      els.map((el) => el.textContent.trim()),
+    );
+    const expected = GAMES.find((g) => g.id === id).controlsTouch;
+    for (const line of expected) {
+      if (!lines.includes(line)) problems.push(`[mobile ${id}] card is missing touch line "${line}"`);
+    }
+    await phone.click('.overlay--brief .btn--primary');
+    await sleep(400);
+
+    const seen = await phone.evaluate(() => {
+      const read = (sel) => {
+        const el = document.querySelector(sel);
+        if (!el || el.hidden || getComputedStyle(el).display === 'none') return null;
+        return el.textContent.trim();
+      };
+      return [read('.touch__action:not(.touch__action--secondary)'), read('.touch__action--secondary')];
+    });
+
+    if (seen[0] !== action) problems.push(`[mobile ${id}] action button is "${seen[0]}", expected "${action}"`);
+    if (seen[1] !== secondary) problems.push(`[mobile ${id}] secondary button is "${seen[1]}", expected "${secondary}"`);
+
+    await phone.screenshot({ path: `${OUT}/mobile-${id}.png` });
+  }
+  console.log(`  ✓ mobile viewport (${Object.keys(TOUCH_BUTTONS).length} cabinets, buttons labelled)`);
 
   await browser.close();
 

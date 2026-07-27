@@ -127,6 +127,19 @@ export class Input {
     this.pointer.released = false;
   }
 
+  /**
+   * Drop everything, edges and held keys alike. Whenever the loop is stopped
+   * the tick that would have consumed an edge never runs, so the press stays
+   * latched and fires the instant play resumes — closing an overlay with Esc
+   * would immediately pause the game it just resumed. The host calls this
+   * every time it hands control back.
+   */
+  reset() {
+    this.endFrame();
+    this.down.clear();
+    this.codes.clear();
+  }
+
   /* ------------------------------------------------------------ sources -- */
 
   #press(action) {

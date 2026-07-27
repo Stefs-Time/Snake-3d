@@ -44,7 +44,8 @@ export default class Bastion extends BaseGame {
 
   setup() {
     this.host.setSecondaryLabel('Wave');
-    this.host.setHint('Click to detonate · the nearest loaded battery fires');
+    this.host.setHint('Click to detonate · the nearest loaded battery fires',
+      'Tap to detonate · the nearest loaded battery fires');
 
     // Batteries at both ends and the middle; cities fill the gaps between.
     this.batteries = [0.06, 0.5, 0.94].map((f) => ({

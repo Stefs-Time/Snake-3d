@@ -74,7 +74,8 @@ export default class Reversi extends BaseGame {
 
   setup() {
     this.host.setSecondaryLabel('Game');
-    this.host.setHint('Click a marked square · bracket to flip');
+    this.host.setHint('Click a marked square · bracket to flip',
+      'Tap a marked square · bracket to flip');
     this.setLives(3);
 
     this.gameNo = 1;

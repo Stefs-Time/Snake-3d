@@ -24,13 +24,15 @@ export default class Vector extends BaseGame {
   static height = H;
   static renderer = '2d';
   static touch = 'dpad';
+  static touchButtons = { action: 'FIRE', secondary: 'HYPER' };
   static smooth = true;
   static hudPad = { top: 30, bottom: 20 };
   static hudLabels = { score: 'Score', secondary: 'Wave' };
 
   setup() {
     this.host.setSecondaryLabel('Wave');
-    this.host.setHint('← → turn · ↑ thrust · Space fire · Shift hyperspace');
+    this.host.setHint('← → turn · ↑ thrust · Space fire · Shift hyperspace',
+      'Pad to turn and thrust · FIRE · HYPER');
 
     this.wave = 1;
     this.setLives(3);

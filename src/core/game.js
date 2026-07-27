@@ -22,6 +22,18 @@ export class BaseGame {
   static renderer = '2d';
   /** Which on-screen controls to show: 'dpad' | 'swipe' | 'aim' | 'none'. */
   static touch = 'dpad';
+  /**
+   * Labels for the two on-screen action buttons. A key that is absent hides
+   * its button, so a game only ever shows a button it actually reads — and
+   * the button says what it does rather than "A" and "B", which on a phone
+   * is the only place the player can find out.
+   *
+   * `action` maps to `input.pressed('action')`, `secondary` to
+   * `input.pressed('secondary')`.
+   *
+   * @type {{ action?: string, secondary?: string }}
+   */
+  static touchButtons = {};
   /** false keeps the chunky pixel look; true lets the browser smooth it. */
   static smooth = false;
   /**

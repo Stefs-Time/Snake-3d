@@ -63,7 +63,8 @@ export default class Sudoku extends BaseGame {
 
   setup() {
     this.host.setSecondaryLabel('Puzzle');
-    this.host.setHint('Click a cell, then a number · N for notes');
+    this.host.setHint('Click a cell, then a number · N for notes',
+      'Tap a cell, then a number · NOTES for pencil marks');
     this.setLives(MISTAKE_LIMIT);
 
     this.puzzleNo = 1;

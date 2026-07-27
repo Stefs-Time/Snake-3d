@@ -65,7 +65,8 @@ export default class ConnectFour extends BaseGame {
 
   setup() {
     this.host.setSecondaryLabel('Round');
-    this.host.setHint('Click a column to drop · four in a row wins');
+    this.host.setHint('Click a column to drop · four in a row wins',
+      'Tap a column to drop · four in a row wins');
     this.setLives(3);
 
     this.round = 1;

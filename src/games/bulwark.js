@@ -96,7 +96,8 @@ export default class Bulwark extends BaseGame {
 
   setup() {
     this.host.setSecondaryLabel('Wave');
-    this.host.setHint('Pick a tower, click open ground · Space calls the next wave');
+    this.host.setHint('Pick a tower, click open ground · Space calls the next wave',
+      'Pick a tower, tap open ground · the bar below calls a wave');
 
     this.#buildPath();
     this.#applyPace(this.option('pace'));
