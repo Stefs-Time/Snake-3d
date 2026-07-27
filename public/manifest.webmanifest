@@ -1,0 +1,66 @@
+{
+  "name": "Neon Cabinet — Arcade Classics",
+  "short_name": "Neon Cabinet",
+  "description": "Eight arcade classics in one installable cabinet: Snake 3D, Chomp, Blockfall, Invaders, Bricks, Vector, Paddles and 2048. Plays offline, with a global leaderboard.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#06070b",
+  "theme_color": "#06070b",
+  "categories": ["games", "entertainment"],
+  "lang": "en",
+  "dir": "ltr",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Snake 3D",
+      "short_name": "Snake 3D",
+      "description": "The classic, lifted off the page",
+      "url": "/play/snake3d",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Chomp",
+      "short_name": "Chomp",
+      "description": "Four ghosts, one maze",
+      "url": "/play/chomp",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Blockfall",
+      "short_name": "Blockfall",
+      "description": "Seven shapes, infinite regret",
+      "url": "/play/blockfall",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "High scores",
+      "short_name": "Scores",
+      "description": "The global leaderboards",
+      "url": "/scores",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

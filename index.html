@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en" data-crt="on">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no"
+    />
+    <title>Neon Cabinet — an arcade in your browser</title>
+    <meta
+      name="description"
+      content="Eight arcade classics in one installable cabinet. Snake 3D, Chomp, Blockfall, Invaders, Bricks, Vector, Paddles and 2048 — playable offline, with a global leaderboard."
+    />
+    <meta name="theme-color" content="#06070b" />
+    <meta name="color-scheme" content="dark" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icons/icon-192.png" sizes="192x192" type="image/png" />
+    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Neon Cabinet" />
+    <meta name="mobile-web-app-capable" content="yes" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Neon Cabinet" />
+    <meta property="og:description" content="Eight arcade classics in one installable cabinet." />
+    <meta property="og:image" content="/icons/icon-512.png" />
+  </head>
+  <body>
+    <!-- Painted before the bundle parses so the first frame is never white. -->
+    <div id="boot" class="boot">
+      <div class="boot__inner">
+        <div class="boot__logo" aria-hidden="true">
+          <span>N</span><span>E</span><span>O</span><span>N</span>
+        </div>
+        <p class="boot__line">INSERT COIN</p>
+      </div>
+    </div>
+
+    <div id="app" class="app" hidden></div>
+
+    <!-- CRT treatment. Sits above everything, ignores pointer events. -->
+    <div class="crt" aria-hidden="true">
+      <div class="crt__scanlines"></div>
+      <div class="crt__vignette"></div>
+      <div class="crt__flicker"></div>
+    </div>
+
+    <noscript>
+      <div class="noscript">
+        <h1>Neon Cabinet</h1>
+        <p>This arcade is built entirely in JavaScript. Please enable it to play.</p>
+      </div>
+    </noscript>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

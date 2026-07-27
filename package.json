@@ -1,0 +1,29 @@
+{
+  "name": "neon-cabinet",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A Railway-hosted PWA arcade — Snake 3D, Pac-Man and six more classics in one cabinet.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "icons": "node scripts/gen-icons.mjs",
+    "dev": "npm run icons && concurrently -n vite,api -c cyan,magenta \"vite\" \"node --watch server/index.js\"",
+    "build": "npm run icons && vite build",
+    "preview": "npm run build && node server/index.js",
+    "start": "node server/index.js",
+    "smoke": "node scripts/smoke.mjs"
+  },
+  "dependencies": {
+    "compression": "^1.7.5",
+    "express": "^4.21.2",
+    "pg": "^8.22.0",
+    "three": "^0.170.0"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "playwright-core": "^1.49.0",
+    "vite": "^6.0.7"
+  }
+}
