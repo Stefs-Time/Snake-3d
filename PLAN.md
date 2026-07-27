@@ -189,3 +189,29 @@ driven by the catalog. The genres were also consolidated from twelve to six —
 half of them had been singletons, which is a filter that filters nothing.
 Switching genre disposes the old previews and attaches new ones rather than
 hiding cards, so off-screen animations stop costing anything.
+
+
+---
+
+## Wave six — hold the line, and swap tiles
+
+Two requests, one batch: tower-defense-like games, and tile-swap games.
+
+| # | Game | Codename | Core loop |
+| --- | --- | --- | --- |
+| 23 | **Bulwark** | `bulwark` | Grid tower defense: build, upgrade, sell wave bounties |
+| 24 | **Bastion** | `bastion` | Missile Command: per-battery ammunition is the constraint |
+| 25 | **Cascade** | `cascade` | Match three with cascading chains and two specials |
+
+**Notes**
+
+- Bulwark tracks enemies by distance along the road rather than by position.
+  That one choice makes the only correct targeting rule — furthest along —
+  a `max()` rather than a pathfinding problem, and it makes the road's shape
+  free to change without touching the combat code.
+- Bastion's design pressure is entirely in ammunition being per battery
+  rather than pooled. Defending one flank drains it, and the next shot has to
+  come the long way.
+- Cascade rejects a swap that makes nothing, so the board has to be searched
+  for a match before the move is committed. A deadlocked board reshuffles.
+- The catalog gained a Defense genre; the hub filter picks it up for free.

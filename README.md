@@ -1,6 +1,6 @@
 # NEON CABINET
 
-An installable arcade. Twenty-two games behind one front end, built to be added
+An installable arcade. Twenty-five games behind one front end, built to be added
 to a home screen rather than bookmarked — it launches full screen, plays with
 no connection, and keeps a global leaderboard when it has one.
 
@@ -51,6 +51,14 @@ And the pen-and-paper corner, three of them against an opponent that searches:
 | **Fifteen** | Sliding tiles. | Half of all arrangements are unsolvable — the ones Sam Loyd offered a prize for — so the shuffle is legal moves from the finished board, which cannot reach that half. |
 | **Hangman** | Six wrong and it is done. | The category is given, because without it a long word with no vowels showing is not a puzzle. Every third solve takes a limb off your allowance, so a streak is played on a shortening rope. |
 
+And three about holding something:
+
+| Game | What it is | Worth knowing |
+| --- | --- | --- |
+| **Bulwark** | Tower defense. | Enemies are tracked by *distance along the path*, not position, which turns "shoot the one closest to the exit" — the only correct targeting rule — into a single `max()`. Four towers, two upgrades each. Calling a wave early pays a bounty for the peace you sold, so the real decision is how much time to sell. |
+| **Bastion** | Missile Command. | The whole game is the word *nearest*: ammunition is per battery, so the flank you have been defending runs dry first and the shot you need becomes a long arc from the wrong side. Blasts chain. Spare shells pay a bonus, which is the reason not to panic-fire. |
+| **Cascade** | Match three. | The chain is the game — a swap worth three is nothing, one that sets off four rounds of collapse is a level. Four in a line leaves a charged gem, five a prism, and a board with no legal swap reshuffles rather than stranding you. |
+
 ---
 
 ## How it is put together
@@ -61,7 +69,7 @@ gzipped.
 
 **Code splitting that matters.** Three.js is 120 kB gzipped and only Snake 3D
 needs it, so it lives in its own chunk that is fetched when you walk up to that
-cabinet. The hub and the other twenty-one games never download it.
+cabinet. The hub and the other twenty-four games never download it.
 
 **No dictionary, no CDN.** The word games ship their own list — a curated 483
 common five-letter words for Lexicon and seven themed sets for the word search

@@ -404,6 +404,60 @@ export const GAMES = [
     scoreCeiling: 500_000,
     is3d: false,
   },
+
+  /* ------------------------------------------------------ hold the line -- */
+
+  {
+    id: 'bulwark',
+    title: 'Bulwark',
+    codename: 'BULWRK',
+    tagline: 'Build it before they arrive.',
+    blurb:
+      'A fixed road from the west gate to the keep, and everything else is yours to build on. Four towers — a gun, a splash cannon, a chiller and a tesla that arcs to three at once — each upgradeable twice. Calling a wave in early pays a bounty for the peace you sold, so the real question is never which tower to build but how much time to sell.',
+    year: 1990,
+    genre: 'Defense',
+    accent: '#a3e635',
+    accent2: '#fb923c',
+    glyph: 'M5 21V10l4-3 4 3v11M5 21h14V13l-3-2M9 21v-5h4v5M12 3l2 2-2 2-2-2z',
+    controls: ['Click a tower, then open ground', '1-4 to pick a tower', 'Space calls the next wave early'],
+    scoreLabel: 'Score',
+    scoreCeiling: 5_000_000,
+    is3d: false,
+  },
+  {
+    id: 'bastion',
+    title: 'Bastion',
+    codename: 'BASTN',
+    tagline: 'Six cities. Thirty shells.',
+    blurb:
+      'Click where you want an interceptor to go off and the nearest loaded battery fires at that point. The whole game lives in that word: ammunition is per battery, so the flank you have been defending runs dry first and the shot you need becomes a long slow arc from the wrong side of the map. You do not win. The waves just come faster.',
+    year: 1980,
+    genre: 'Defense',
+    accent: '#a3e635',
+    accent2: '#fb7185',
+    glyph: 'M3 20h18M6 20v-6l3-3 3 3 3-3 3 3v6M12 3v5M9 5l3-3 3 3',
+    controls: ['Click to detonate', 'Lead the target', 'Spare shells pay a bonus'],
+    scoreLabel: 'Score',
+    scoreCeiling: 5_000_000,
+    is3d: false,
+  },
+  {
+    id: 'cascade',
+    title: 'Cascade',
+    codename: 'CASCDE',
+    tagline: 'Swap two. Hope for four.',
+    blurb:
+      'Swap neighbouring gems to line up three; they clear, everything falls, and whatever lands may clear again. The chain is the whole game — a swap worth three is nothing, and one that sets off four rounds of collapse is a level. A line of four leaves a charged gem, a line of five a prism, and a board with no legal swap quietly reshuffles.',
+    year: 2001,
+    genre: 'Puzzle',
+    accent: '#c084fc',
+    accent2: '#2dd4bf',
+    glyph: 'M5 5h6v6H5zM13 5h6v6h-6zM5 13h6v6H5zM13 13h6v6h-6zM11 8h2M8 11v2',
+    controls: ['Click a gem, then a neighbour', 'Chains multiply the score', 'Clear the target before the moves run out'],
+    scoreLabel: 'Score',
+    scoreCeiling: 10_000_000,
+    is3d: false,
+  },
 ];
 
 /** @type {Record<string, GameDef>} */

@@ -29,6 +29,9 @@ const LOADERS = {
   lightsout: () => import('./lightsout.js'),
   fifteen: () => import('./fifteen.js'),
   hangman: () => import('./hangman.js'),
+  bulwark: () => import('./bulwark.js'),
+  bastion: () => import('./bastion.js'),
+  cascade: () => import('./cascade.js'),
 };
 
 /**

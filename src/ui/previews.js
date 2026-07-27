@@ -1263,6 +1263,209 @@ const PREVIEWS = {
     });
   },
 
+  /* --- Bulwark: a road, two towers, and something walking into range --- */
+  bulwark(ctx, w, h, t, accent, accent2) {
+    const cell = Math.min(w / 9, h / 6);
+    const ox = (w - cell * 9) / 2;
+    const oy = (h - cell * 6) / 2;
+    const pt = (c, r) => [ox + (c + 0.5) * cell, oy + (r + 0.5) * cell];
+
+    // A short serpentine road.
+    const road = [[-0.5, 1], [3, 1], [3, 4], [6, 4], [6, 2], [9, 2]].map(([c, r]) => pt(c, r));
+
+    ctx.save();
+    ctx.strokeStyle = '#1e2a22';
+    ctx.lineWidth = cell * 0.8;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    road.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(163,230,53,0.3)';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([6, 9]);
+    ctx.lineDashOffset = -(t * 26) % 15;
+    ctx.beginPath();
+    road.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+    ctx.stroke();
+    ctx.restore();
+
+    // Walk a marker along the polyline.
+    const legs = [];
+    let total = 0;
+    for (let i = 0; i < road.length - 1; i++) {
+      const len = Math.hypot(road[i + 1][0] - road[i][0], road[i + 1][1] - road[i][1]);
+      legs.push({ a: road[i], b: road[i + 1], start: total, len });
+      total += len;
+    }
+    const walked = ((t * 0.22) % 1) * total;
+    let ex = road[0][0];
+    let ey = road[0][1];
+    for (const leg of legs) {
+      if (walked <= leg.start + leg.len) {
+        const k = (walked - leg.start) / leg.len;
+        ex = leg.a[0] + (leg.b[0] - leg.a[0]) * k;
+        ey = leg.a[1] + (leg.b[1] - leg.a[1]) * k;
+        break;
+      }
+    }
+
+    // Two towers, tracking it.
+    const towers = [pt(2, 3), pt(5, 2)];
+    for (const [tx, ty] of towers) {
+      const angle = Math.atan2(ey - ty, ex - tx);
+      ctx.save();
+      ctx.fillStyle = '#131c18';
+      ctx.strokeStyle = accent;
+      ctx.lineWidth = 1.4;
+      ctx.shadowColor = accent;
+      ctx.shadowBlur = 8;
+      ctx.beginPath();
+      ctx.rect(tx - cell * 0.34, ty - cell * 0.34, cell * 0.68, cell * 0.68);
+      ctx.fill();
+      ctx.stroke();
+      ctx.translate(tx, ty);
+      ctx.rotate(angle);
+      ctx.fillStyle = accent;
+      ctx.fillRect(0, -2, cell * 0.4, 4);
+      ctx.restore();
+    }
+
+    // The enemy.
+    ctx.save();
+    ctx.fillStyle = accent2;
+    ctx.shadowColor = accent2;
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    ctx.arc(ex, ey, cell * 0.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  },
+
+  /* --- Bastion: incoming trails and a blast blooming --- */
+  bastion(ctx, w, h, t, accent, accent2) {
+    const groundY = h * 0.8;
+
+    ctx.fillStyle = 'rgba(163,230,53,0.5)';
+    ctx.fillRect(0, groundY, w, 1.5);
+
+    // Three little skylines.
+    for (const f of [0.22, 0.5, 0.78]) {
+      const x = w * f;
+      ctx.save();
+      ctx.fillStyle = '#38bdf8';
+      ctx.shadowColor = '#38bdf8';
+      ctx.shadowBlur = 8;
+      [6, 11, 8, 13].forEach((hh, i) => ctx.fillRect(x - 12 + i * 7, groundY - hh, 5, hh));
+      ctx.restore();
+    }
+
+    // Incoming, on a loop.
+    const loop = 3;
+    const phase = (t % loop) / loop;
+    const shots = [
+      { sx: w * 0.15, tx: w * 0.4, off: 0 },
+      { sx: w * 0.7, tx: w * 0.55, off: 0.35 },
+      { sx: w * 0.9, tx: w * 0.78, off: 0.66 },
+    ];
+
+    ctx.lineWidth = 1.4;
+    for (const shot of shots) {
+      const p = (phase + shot.off) % 1;
+      const y = p * groundY;
+      const x = shot.sx + (shot.tx - shot.sx) * p;
+      ctx.strokeStyle = 'rgba(251,113,133,0.45)';
+      ctx.beginPath();
+      ctx.moveTo(shot.sx, 0);
+      ctx.lineTo(x, y);
+      ctx.stroke();
+      ctx.save();
+      ctx.fillStyle = accent2;
+      ctx.shadowColor = accent2;
+      ctx.shadowBlur = 8;
+      ctx.beginPath();
+      ctx.arc(x, y, 2.6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // A blast opening and closing in the middle of the sky.
+    const bp = (t % 1.8) / 1.8;
+    const r = Math.sin(bp * Math.PI) * Math.min(w, h) * 0.12;
+    if (r > 0.5) {
+      ctx.save();
+      ctx.globalAlpha = 0.75;
+      ctx.fillStyle = '#fbbf24';
+      ctx.shadowColor = '#fbbf24';
+      ctx.shadowBlur = 20;
+      ctx.beginPath();
+      ctx.arc(w * 0.46, groundY * 0.5, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // A battery firing upward.
+    ctx.save();
+    ctx.strokeStyle = accent;
+    ctx.globalAlpha = 0.65;
+    ctx.beginPath();
+    ctx.moveTo(w * 0.5, groundY);
+    ctx.lineTo(w * 0.46, groundY * 0.5);
+    ctx.stroke();
+    ctx.restore();
+  },
+
+  /* --- Cascade: a column of gems clearing and refilling --- */
+  cascade(ctx, w, h, t, accent, accent2) {
+    const n = 6;
+    const cell = Math.min(w, h) / (n + 0.6);
+    const ox = (w - n * cell) / 2;
+    const oy = (h - n * cell) / 2;
+    const colors = ['#fb7185', '#38bdf8', '#a3e635', '#fbbf24', '#c084fc', '#2dd4bf'];
+
+    // Row 3 clears on a loop, and the gems above drop into the gap.
+    const loop = 2.6;
+    const phase = (t % loop) / loop;
+    const clearing = phase < 0.25;
+    const drop = phase >= 0.25 && phase < 0.6 ? (phase - 0.25) / 0.35 : phase >= 0.6 ? 1 : 0;
+
+    for (let r = 0; r < n; r++) {
+      for (let c = 0; c < n; c++) {
+        const matched = r === 3 && c >= 1 && c <= 3;
+        if (matched && clearing) continue;
+
+        let y = oy + r * cell;
+        if (drop > 0 && r < 3 && c >= 1 && c <= 3) y += drop * cell;
+
+        const kind = (r * 5 + c * 3) % colors.length;
+        const color = matched ? colors[2] : colors[kind];
+        const cx = ox + c * cell + cell / 2;
+        const cy = y + cell / 2;
+        const rad = cell * 0.32 * (matched && phase < 0.25 ? 1 + phase * 2 : 1);
+
+        ctx.save();
+        ctx.fillStyle = color;
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 10;
+        ctx.globalAlpha = matched && clearing ? 1 - phase * 4 : 1;
+        ctx.beginPath();
+        const sides = 3 + (kind % 4);
+        if (sides === 3) ctx.arc(cx, cy, rad, 0, Math.PI * 2);
+        else {
+          for (let i = 0; i < sides; i++) {
+            const a = -Math.PI / 2 + (i / sides) * Math.PI * 2;
+            const px = cx + Math.cos(a) * rad;
+            const py = cy + Math.sin(a) * rad;
+            i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+          }
+          ctx.closePath();
+        }
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+  },
+
   default(ctx, w, h, t, accent) {
     glow(ctx, accent, 16, () => {
       ctx.beginPath();
