@@ -22,6 +22,13 @@ const LOADERS = {
   minefield: () => import('./minefield.js'),
   memory: () => import('./memory.js'),
   simon: () => import('./simon.js'),
+  tictactoe: () => import('./tictactoe.js'),
+  connectfour: () => import('./connectfour.js'),
+  reversi: () => import('./reversi.js'),
+  sudoku: () => import('./sudoku.js'),
+  lightsout: () => import('./lightsout.js'),
+  fifteen: () => import('./fifteen.js'),
+  hangman: () => import('./hangman.js'),
 };
 
 /**

@@ -64,6 +64,46 @@ export function isValidGuess(word) {
   return /^[A-Z]{5}$/.test(word);
 }
 
+/**
+ * Hangman words, grouped so the category can be shown as a hint. Lengths run
+ * from four to eleven letters — a list of uniform length turns the game into
+ * arithmetic. Single words only, all A-Z.
+ */
+export const HANGMAN_CATEGORIES = [
+  {
+    name: 'Animals',
+    words: ['OTTER', 'PENGUIN', 'GIRAFFE', 'BADGER', 'DOLPHIN', 'TORTOISE', 'SQUIRREL', 'FLAMINGO', 'HEDGEHOG', 'ANTELOPE', 'MONGOOSE', 'PORCUPINE'],
+  },
+  {
+    name: 'Countries',
+    words: ['BRAZIL', 'FINLAND', 'MOROCCO', 'ECUADOR', 'THAILAND', 'PORTUGAL', 'MONGOLIA', 'TANZANIA', 'ARGENTINA', 'INDONESIA', 'SWITZERLAND', 'MADAGASCAR'],
+  },
+  {
+    name: 'In the kitchen',
+    words: ['KETTLE', 'SKILLET', 'COLANDER', 'TOASTER', 'SPATULA', 'CUPBOARD', 'BLENDER', 'TEAPOT', 'GRATER', 'SAUCEPAN', 'CORKSCREW', 'ROLLINGPIN'],
+  },
+  {
+    name: 'Weather',
+    words: ['BLIZZARD', 'DRIZZLE', 'THUNDER', 'MONSOON', 'TORNADO', 'HUMIDITY', 'OVERCAST', 'HAILSTONE', 'LIGHTNING', 'SUNSHINE', 'FROSTBITE', 'WHIRLWIND'],
+  },
+  {
+    name: 'Music',
+    words: ['TRUMPET', 'HARMONY', 'ORCHESTRA', 'SAXOPHONE', 'CONCERTO', 'MELODY', 'RHYTHM', 'BAGPIPES', 'CLARINET', 'PERCUSSION', 'CRESCENDO', 'TAMBOURINE'],
+  },
+  {
+    name: 'Space',
+    words: ['ECLIPSE', 'ASTEROID', 'GALAXY', 'NEBULA', 'SATELLITE', 'TELESCOPE', 'METEORITE', 'SUPERNOVA', 'GRAVITY', 'ORBITAL', 'COMET', 'STARLIGHT'],
+  },
+  {
+    name: 'Sport',
+    words: ['CRICKET', 'MARATHON', 'JAVELIN', 'HOCKEY', 'ARCHERY', 'CANOEING', 'SPRINTER', 'BADMINTON', 'GYMNAST', 'PADDLING', 'DECATHLON', 'GOALKEEPER'],
+  },
+  {
+    name: 'Around town',
+    words: ['LIBRARY', 'MARKET', 'BRIDGE', 'STATION', 'HARBOUR', 'CATHEDRAL', 'ROUNDABOUT', 'PAVEMENT', 'TERMINAL', 'ARCADE', 'MUSEUM', 'FOUNTAIN'],
+  },
+];
+
 /** Themed grids for the word search, chosen so the letters mix well. */
 export const THEMES = [
   {

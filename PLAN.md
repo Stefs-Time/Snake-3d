@@ -161,3 +161,31 @@ mechanism, since Solitaire wanted one too.
 
 Both games record the chosen mode in the score's metadata, so the leaderboard
 shows what a run was played under instead of silently mixing two difficulties.
+
+
+---
+
+## Wave five — pen and paper
+
+Requested: more quick-to-learn old-school games, sudoku and tic tac toe named.
+The biggest gap in the arcade was head-to-head play — twenty-two cabinets and
+not one opponent — so three of the seven are board games with a real search
+behind them.
+
+| # | Game | Codename | Core loop |
+| --- | --- | --- | --- |
+| 16 | **Tic Tac Toe** | `tictactoe` | Minimax that errs on purpose, less each match |
+| 17 | **Connect Four** | `connectfour` | Alpha-beta, depth three to seven |
+| 18 | **Reversi** | `reversi` | Positional search: corners, mobility, then material |
+| 19 | **Sudoku** | `sudoku` | Generated with a uniqueness check on every dug hole |
+| 20 | **Lights Out** | `lightsout` | Generated from solved, so always solvable, with a par |
+| 21 | **Fifteen** | `fifteen` | Shuffled by legal moves, never an impossible board |
+| 22 | **Hangman** | `hangman` | Categorised words, allowance shrinks with the streak |
+
+**Hub**
+
+Twenty-two cabinets is too many to scan, so the wall gained genre filters
+driven by the catalog. The genres were also consolidated from twelve to six —
+half of them had been singletons, which is a filter that filters nothing.
+Switching genre disposes the old previews and attaches new ones rather than
+hiding cards, so off-screen animations stop costing anything.

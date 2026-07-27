@@ -7,12 +7,15 @@ import { icon, gameGlyph } from './icons.js';
 import { attachPreview, PREVIEWS, stopPreviews } from './previews.js';
 
 let disposers = [];
+/** Card previews are torn down and rebuilt on every filter change. */
+let cardDisposers = [];
 let heroTimer = 0;
 
 const NUMBER_WORDS = [
   '', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten',
   'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen',
-  'Eighteen', 'Nineteen', 'Twenty',
+  'Eighteen', 'Nineteen', 'Twenty', 'Twenty-one', 'Twenty-two', 'Twenty-three',
+  'Twenty-four',
 ];
 
 /** So the headline stays true when a cabinet is added. */
@@ -23,8 +26,45 @@ export function renderHub() {
 
   const statsRow = h('div.hero__stats');
   const grid = h('div.grid');
+  const genres = ['All', ...new Set(GAMES.map((g) => g.genre))];
+  let filter = 'All';
 
-  for (const game of GAMES) grid.append(gameCard(game));
+  /**
+   * Rebuild the wall for the chosen genre. Previews are disposed and
+   * re-attached rather than hidden, so the ones that are not on screen stop
+   * costing anything.
+   */
+  const paint = () => {
+    for (const dispose of cardDisposers) dispose();
+    cardDisposers = [];
+    grid.replaceChildren();
+    const shown = GAMES.filter((g) => filter === 'All' || g.genre === filter);
+    for (const game of shown) grid.append(gameCard(game));
+    countNote.textContent = `${shown.length} ${shown.length === 1 ? 'cabinet' : 'cabinets'}`;
+  };
+
+  const countNote = h('span.section-head__note', `${GAMES.length} cabinets`);
+
+  const filterRow = h(
+    'div.filters',
+    { role: 'group', 'aria-label': 'Filter by genre' },
+    ...genres.map((genre) =>
+      h(
+        `button.filter${genre === 'All' ? '.is-on' : ''}`,
+        {
+          type: 'button',
+          onclick: (e) => {
+            filter = genre;
+            for (const btn of filterRow.children) btn.classList.toggle('is-on', btn === e.currentTarget);
+            sfx.play('select');
+            paint();
+          },
+        },
+        genre,
+        h('i', String(GAMES.filter((g) => genre === 'All' || g.genre === genre).length)),
+      ),
+    ),
+  );
 
   const heroCanvas = h('canvas', { 'aria-hidden': 'true' });
   const heroLabel = h('span', GAMES[0].title);
@@ -45,9 +85,10 @@ export function renderHub() {
         h(
           'p.hero__sub',
           'Snake lifted into 3D, a maze chase with the original ghost AI intact, ' +
-            'a stacker with modern rotation rules — and a quieter corner with ' +
-            'solitaire, word games and a bingo caller who does not wait for you. ' +
-            'Install it once and the whole arcade works on a plane.',
+            'a stacker with modern rotation rules — then a quieter corner with ' +
+            'solitaire, sudoku and word games, and three board games with an ' +
+            'opponent that actually searches. Install it once and the whole ' +
+            'arcade works on a plane.',
         ),
         h(
           'div.hero__actions',
@@ -71,8 +112,9 @@ export function renderHub() {
       'div.section-head',
       h('h2', 'Select your game'),
       h('div.section-head__rule'),
-      h('span.section-head__note', 'Insert coin'),
+      countNote,
     ),
+    filterRow,
     grid,
     h(
       'p.hub__note',
@@ -83,6 +125,7 @@ export function renderHub() {
     ),
   );
 
+  paint();
   renderStats(statsRow);
   startHeroAttract(heroCanvas, heroLabel);
 
@@ -125,7 +168,7 @@ function gameCard(game) {
     ),
   );
 
-  disposers.push(attachPreview(canvas, game.id, { accent: game.accent, accent2: game.accent2 }));
+  cardDisposers.push(attachPreview(canvas, game.id, { accent: game.accent, accent2: game.accent2 }));
   return card;
 }
 
@@ -224,8 +267,9 @@ function startHeroAttract(canvas, label) {
 /* --------------------------------------------------------------- unmount -- */
 
 export function cleanup() {
-  for (const dispose of disposers) dispose();
+  for (const dispose of [...disposers, ...cardDisposers]) dispose();
   disposers = [];
+  cardDisposers = [];
   clearInterval(heroTimer);
   stopPreviews();
 }

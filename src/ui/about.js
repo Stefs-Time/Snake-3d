@@ -15,7 +15,7 @@ export function renderAbout() {
       h(
         'p',
         h('b', 'Neon Cabinet'),
-        ' is fifteen games behind one front end, built to be installed rather than ' +
+        ' is twenty-two games behind one front end, built to be installed rather than ' +
           'bookmarked. Add it to your home screen and it launches full-screen, works with no ' +
           'connection, and keeps your high scores on the device.',
       ),

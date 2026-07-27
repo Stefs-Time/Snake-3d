@@ -903,6 +903,366 @@ const PREVIEWS = {
     ctx.fill();
   },
 
+  /* --- Tic Tac Toe: a game playing itself out --- */
+  tictactoe(ctx, w, h, t, accent, accent2) {
+    const size = Math.min(w, h) * 0.72;
+    const cell = size / 3;
+    const ox = (w - size) / 2;
+    const oy = (h - size) / 2;
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    for (let i = 1; i < 3; i++) {
+      ctx.moveTo(ox + i * cell, oy + 6);
+      ctx.lineTo(ox + i * cell, oy + size - 6);
+      ctx.moveTo(ox + 6, oy + i * cell);
+      ctx.lineTo(ox + size - 6, oy + i * cell);
+    }
+    ctx.stroke();
+
+    // A fixed game, revealed one move at a time then reset.
+    const script = [
+      [4, 1], [0, 2], [8, 1], [2, 2], [6, 1], [7, 2], [3, 1],
+    ];
+    const shown = Math.floor((t % 6) * 1.6);
+
+    script.slice(0, Math.min(shown, script.length)).forEach(([index, player]) => {
+      const cx = ox + (index % 3) * cell + cell / 2;
+      const cy = oy + Math.floor(index / 3) * cell + cell / 2;
+      const r = cell * 0.26;
+      ctx.save();
+      ctx.strokeStyle = player === 1 ? accent : accent2;
+      ctx.shadowColor = player === 1 ? accent : accent2;
+      ctx.shadowBlur = 10;
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      if (player === 1) {
+        ctx.moveTo(cx - r, cy - r);
+        ctx.lineTo(cx + r, cy + r);
+        ctx.moveTo(cx + r, cy - r);
+        ctx.lineTo(cx - r, cy + r);
+      } else {
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      }
+      ctx.stroke();
+      ctx.restore();
+    });
+
+    // The winning diagonal, once it is there.
+    if (shown >= script.length) {
+      ctx.save();
+      ctx.strokeStyle = '#ffffff';
+      ctx.shadowColor = accent;
+      ctx.shadowBlur = 14;
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(ox + cell * 0.5, oy + cell * 2.5);
+      ctx.lineTo(ox + cell * 2.5, oy + cell * 0.5);
+      ctx.stroke();
+      ctx.restore();
+    }
+  },
+
+  /* --- Connect Four: discs dropping into the slab --- */
+  connectfour(ctx, w, h, t, accent, accent2) {
+    const cols = 7;
+    const rows = 6;
+    const cell = Math.min(w / (cols + 1), h / (rows + 1));
+    const bw = cols * cell;
+    const bh = rows * cell;
+    const ox = (w - bw) / 2;
+    const oy = (h - bh) / 2;
+    const r = cell * 0.38;
+
+    const stack = [2, 3, 1, 4, 2, 1, 0];
+    const owner = (c, i) => ((c + i) % 2 === 0 ? accent : accent2);
+
+    // Settled discs.
+    for (let c = 0; c < cols; c++) {
+      for (let i = 0; i < stack[c]; i++) {
+        const x = ox + c * cell + cell / 2;
+        const y = oy + bh - (i + 0.5) * cell;
+        ctx.save();
+        ctx.fillStyle = owner(c, i);
+        ctx.shadowColor = owner(c, i);
+        ctx.shadowBlur = 8;
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+
+    // One falling.
+    const loop = 2.4;
+    const phase = (t % loop) / loop;
+    const col = Math.floor(t / loop) % cols;
+    const fx = ox + col * cell + cell / 2;
+    const fy = oy - cell * 0.5 + phase * phase * (bh - stack[col] * cell + cell * 0.5);
+    ctx.save();
+    ctx.fillStyle = accent;
+    ctx.shadowColor = accent;
+    ctx.shadowBlur = 12;
+    ctx.beginPath();
+    ctx.arc(fx, fy, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // The slab, punched through so the discs sit inside it.
+    ctx.save();
+    ctx.fillStyle = '#141c3a';
+    ctx.beginPath();
+    ctx.rect(ox - 5, oy - 5, bw + 10, bh + 10);
+    for (let c = 0; c < cols; c++) {
+      for (let rr = 0; rr < rows; rr++) {
+        const x = ox + c * cell + cell / 2;
+        const y = oy + rr * cell + cell / 2;
+        ctx.moveTo(x + r, y);
+        ctx.arc(x, y, r, 0, Math.PI * 2, true);
+      }
+    }
+    ctx.fill('evenodd');
+    ctx.restore();
+  },
+
+  /* --- Reversi: a corner of the board flipping --- */
+  reversi(ctx, w, h, t, accent, accent2) {
+    const n = 6;
+    const cell = Math.min(w, h) / (n + 1);
+    const ox = (w - n * cell) / 2;
+    const oy = (h - n * cell) / 2;
+
+    ctx.fillStyle = '#0c2b1e';
+    ctx.fillRect(ox, oy, n * cell, n * cell);
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let i = 1; i < n; i++) {
+      ctx.moveTo(ox + i * cell, oy);
+      ctx.lineTo(ox + i * cell, oy + n * cell);
+      ctx.moveTo(ox, oy + i * cell);
+      ctx.lineTo(ox + n * cell, oy + i * cell);
+    }
+    ctx.stroke();
+
+    // A run of discs flipping one after another, then flipping back.
+    const wave = (t * 1.4) % 8;
+    for (let r = 0; r < n; r++) {
+      for (let c = 0; c < n; c++) {
+        const seed = (r * 7 + c * 3) % 5;
+        if (seed === 0) continue;
+        const isRun = r === 2 && c >= 1 && c <= 4;
+        let white = seed % 2 === 0;
+        if (isRun && wave > c) white = !white;
+
+        const x = ox + c * cell + cell / 2;
+        const y = oy + r * cell + cell / 2;
+        const squash = isRun && Math.abs(wave - c) < 0.4 ? Math.abs(wave - c) / 0.4 : 1;
+
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.scale(Math.max(0.08, squash), 1);
+        ctx.fillStyle = white ? '#e9edf6' : '#1f2937';
+        ctx.shadowColor = white ? accent2 : accent;
+        ctx.shadowBlur = 6;
+        ctx.beginPath();
+        ctx.arc(0, 0, cell * 0.36, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+  },
+
+  /* --- Sudoku: a grid filling itself in --- */
+  sudoku(ctx, w, h, t, accent) {
+    const n = 9;
+    const size = Math.min(w, h) * 0.86;
+    const cell = size / n;
+    const ox = (w - size) / 2;
+    const oy = (h - size) / 2;
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let i = 0; i <= n; i++) {
+      if (i % 3 === 0) continue;
+      ctx.moveTo(ox + i * cell, oy);
+      ctx.lineTo(ox + i * cell, oy + size);
+      ctx.moveTo(ox, oy + i * cell);
+      ctx.lineTo(ox + size, oy + i * cell);
+    }
+    ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(56,189,248,0.45)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let i = 0; i <= n; i += 3) {
+      ctx.moveTo(ox + i * cell, oy);
+      ctx.lineTo(ox + i * cell, oy + size);
+      ctx.moveTo(ox, oy + i * cell);
+      ctx.lineTo(ox + size, oy + i * cell);
+    }
+    ctx.stroke();
+
+    // A valid-looking Latin square, revealed cell by cell.
+    const filled = Math.floor((t % 8) * 14);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `600 ${Math.round(cell * 0.62)}px ui-monospace, monospace`;
+    for (let r = 0; r < n; r++) {
+      for (let c = 0; c < n; c++) {
+        const i = r * n + c;
+        if ((i * 5) % 13 > 6) continue; // sparse, like a real puzzle
+        const digit = ((r * 3 + Math.floor(r / 3) + c) % 9) + 1;
+        const given = (i * 7) % 11 > 4;
+        if (!given && i > filled) continue;
+        ctx.fillStyle = given ? 'rgba(233,237,246,0.85)' : accent;
+        ctx.fillText(String(digit), ox + c * cell + cell / 2, oy + r * cell + cell / 2);
+      }
+    }
+  },
+
+  /* --- Lights Out: a cross of lights toggling --- */
+  lightsout(ctx, w, h, t, accent) {
+    const n = 5;
+    const cell = Math.min(w, h) / (n + 0.8);
+    const ox = (w - n * cell) / 2;
+    const oy = (h - n * cell) / 2;
+
+    // A press sweeps around the board, toggling a plus shape each time.
+    const step = Math.floor(t * 0.9) % 6;
+    const centres = [[2, 2], [1, 1], [3, 3], [1, 3], [3, 1], [2, 2]];
+    const [pr, pc] = centres[step];
+
+    for (let r = 0; r < n; r++) {
+      for (let c = 0; c < n; c++) {
+        let on = (r * 3 + c * 5 + step * 2) % 4 > 1;
+        if ((r === pr && Math.abs(c - pc) <= 1) || (c === pc && Math.abs(r - pr) <= 1)) on = !on;
+
+        const x = ox + c * cell;
+        const y = oy + r * cell;
+        ctx.save();
+        if (on) {
+          ctx.fillStyle = accent;
+          ctx.shadowColor = accent;
+          ctx.shadowBlur = 16;
+        } else {
+          ctx.fillStyle = '#161d2b';
+        }
+        const pad = cell * 0.1;
+        ctx.beginPath();
+        ctx.roundRect?.(x + pad, y + pad, cell - pad * 2, cell - pad * 2, 6);
+        if (!ctx.roundRect) ctx.rect(x + pad, y + pad, cell - pad * 2, cell - pad * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+  },
+
+  /* --- Fifteen: a tile sliding into the gap --- */
+  fifteen(ctx, w, h, t, accent, accent2) {
+    const n = 4;
+    const cell = Math.min(w, h) / (n + 0.6);
+    const ox = (w - n * cell) / 2;
+    const oy = (h - n * cell) / 2;
+
+    ctx.fillStyle = 'rgba(255,255,255,0.03)';
+    ctx.fillRect(ox - 4, oy - 4, n * cell + 8, n * cell + 8);
+
+    const loop = 1.6;
+    const phase = Math.min(1, ((t % loop) / loop) * 2.2);
+    const moving = 11; // the tile that slides each cycle
+    const gapIndex = 15;
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (let i = 0; i < 16; i++) {
+      if (i === gapIndex) continue;
+      let x = ox + (i % n) * cell;
+      let y = oy + Math.floor(i / n) * cell;
+      if (i === moving) y += phase * cell; // slides down into the gap
+
+      const home = i < 11;
+      ctx.save();
+      ctx.fillStyle = home ? '#14351f' : '#1a2333';
+      ctx.shadowColor = home ? accent2 : accent;
+      ctx.shadowBlur = home ? 8 : 4;
+      const pad = cell * 0.06;
+      ctx.beginPath();
+      ctx.roundRect?.(x + pad, y + pad, cell - pad * 2, cell - pad * 2, 5);
+      if (!ctx.roundRect) ctx.rect(x + pad, y + pad, cell - pad * 2, cell - pad * 2);
+      ctx.fill();
+      ctx.restore();
+
+      ctx.fillStyle = home ? '#86efac' : '#e9edf6';
+      ctx.font = `700 ${Math.round(cell * 0.38)}px ui-monospace, monospace`;
+      ctx.fillText(String(i + 1), x + cell / 2, y + cell / 2);
+    }
+  },
+
+  /* --- Hangman: the drawing filling in under a part-solved word --- */
+  hangman(ctx, w, h, t, accent, accent2) {
+    const scale = Math.min(w / 220, h / 150);
+    const gx = w * 0.3;
+    const gy = h * 0.18;
+    const s = (v) => v * scale;
+
+    ctx.save();
+    ctx.strokeStyle = '#3f4a5f';
+    ctx.lineWidth = Math.max(2, s(4));
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(gx - s(40), gy + s(110));
+    ctx.lineTo(gx + s(16), gy + s(110));
+    ctx.moveTo(gx - s(12), gy + s(110));
+    ctx.lineTo(gx - s(12), gy);
+    ctx.lineTo(gx + s(34), gy);
+    ctx.lineTo(gx + s(34), gy + s(14));
+    ctx.stroke();
+    ctx.restore();
+
+    const stage = Math.floor(t * 0.8) % 8;
+    const head = { x: gx + s(34), y: gy + s(28) };
+
+    ctx.save();
+    ctx.strokeStyle = stage >= 6 ? accent2 : '#e9edf6';
+    ctx.shadowColor = ctx.strokeStyle;
+    ctx.shadowBlur = 6;
+    ctx.lineWidth = Math.max(1.6, s(3));
+    ctx.lineCap = 'round';
+    if (stage >= 1) { ctx.beginPath(); ctx.arc(head.x, head.y, s(12), 0, Math.PI * 2); ctx.stroke(); }
+    if (stage >= 2) { ctx.beginPath(); ctx.moveTo(head.x, head.y + s(12)); ctx.lineTo(head.x, head.y + s(50)); ctx.stroke(); }
+    if (stage >= 3) { ctx.beginPath(); ctx.moveTo(head.x, head.y + s(22)); ctx.lineTo(head.x - s(19), head.y + s(38)); ctx.stroke(); }
+    if (stage >= 4) { ctx.beginPath(); ctx.moveTo(head.x, head.y + s(22)); ctx.lineTo(head.x + s(19), head.y + s(38)); ctx.stroke(); }
+    if (stage >= 5) { ctx.beginPath(); ctx.moveTo(head.x, head.y + s(50)); ctx.lineTo(head.x - s(16), head.y + s(76)); ctx.stroke(); }
+    if (stage >= 6) { ctx.beginPath(); ctx.moveTo(head.x, head.y + s(50)); ctx.lineTo(head.x + s(16), head.y + s(76)); ctx.stroke(); }
+    ctx.restore();
+
+    // The word, filling in as the figure does.
+    const word = 'ARCADE';
+    const slot = Math.min(s(20), (w * 0.42) / word.length);
+    const startX = w * 0.56;
+    const y = h * 0.62;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `700 ${Math.round(slot * 0.82)}px ui-monospace, monospace`;
+    [...word].forEach((letter, i) => {
+      const x = startX + i * slot;
+      ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(x - slot * 0.36, y + slot * 0.5);
+      ctx.lineTo(x + slot * 0.36, y + slot * 0.5);
+      ctx.stroke();
+      if (i <= stage) {
+        ctx.fillStyle = accent;
+        ctx.fillText(letter, x, y);
+      }
+    });
+  },
+
   default(ctx, w, h, t, accent) {
     glow(ctx, accent, 16, () => {
       ctx.beginPath();
