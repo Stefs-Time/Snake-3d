@@ -1,6 +1,9 @@
 /* =============================================================== stage == */
 
 .play {
+  /* The positioning context for overlays on a touchscreen, where they cover
+     the whole view rather than just the cabinet. */
+  position: relative;
   display: grid;
   grid-template-rows: auto 1fr;
   grid-template-columns: 100%;
@@ -418,6 +421,13 @@ body.is-touch .hud__bottom .hud__hint:last-child {
   inset: 0;
   z-index: 20;
   display: grid;
+  /* minmax(0, 1fr), not the implicit auto row. An auto row grows to fit its
+     content, so the panel's `max-height: 100%` resolved against a row that had
+     already stretched to the panel's own height — it clamped nothing. On a
+     phone the how-to-play card ran a thousand pixels past the bottom of the
+     cabinet and its Start button could not be reached at all. */
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   place-items: center;
   padding: 24px;
   background: rgba(3, 4, 7, 0.86);
@@ -436,6 +446,10 @@ body.is-touch .hud__bottom .hud__hint:last-child {
 .overlay__panel {
   width: min(440px, 100%);
   max-height: 100%;
+  /* Game over on a short cabinet is tall too — score, breakdown, initials,
+     buttons — so any panel scrolls rather than spilling out of reach. */
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: clamp(24px, 4vw, 36px);
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
@@ -525,6 +539,12 @@ body.is-touch .hud__bottom .hud__hint:last-child {
   margin-top: 26px;
 }
 
+/* "Press R to play again", "Press ? for this card" — every overlay hint names
+   a key, so on a touchscreen it is both useless and the first thing to clip. */
+body.is-touch .overlay__hint {
+  display: none;
+}
+
 .overlay__hint {
   margin-top: 16px;
   font-family: var(--font-mono);
@@ -541,17 +561,87 @@ body.is-touch .hud__bottom .hud__hint:last-child {
   display: flex;
   flex-direction: column;
   width: min(560px, 100%);
+  /* This one scrolls its middle instead, so Start never leaves the screen. */
+  overflow: hidden;
   text-align: left;
 }
 
-/* The card is inside the cabinet, so on a wide short screen it has very
-   little height to work with. Scroll the middle and keep Start in view. */
-.brief__body {
+/* A panel whose middle scrolls and whose buttons stay put. Every overlay uses
+   it: on a short cabinet the game-over panel was as unreachable as the rules
+   card, and "Play again" below the fold is no better than "Start" below it. */
+.overlay__panel--split {
+  display: flex;
+  flex-direction: column;
+  /* Scroll, never clip. The body shrinks first, so this only engages when the
+     pinned parts alone are taller than the panel — on a 320px phone the
+     actions row wraps to two lines and used to be cut off below the edge. */
+  overflow-y: auto;
+}
+
+/* Grouping for the two-column landscape layout below. Everywhere else the
+   groups are transparent, so the panel lays out exactly as it always did. */
+.overlay__col {
+  display: contents;
+}
+
+/* Only the body may shrink. Everything else defaults to flex-shrink: 1, so on
+   a short panel the actions row was squeezed and then clipped away. */
+.overlay__panel--split > *,
+.overlay__col > * {
+  flex: 0 0 auto;
+}
+
+.overlay__body {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
+
+/* A phone held sideways is wide and very short. Stacked, a game-over panel —
+   score, breakdown, initials, three buttons — cannot fit 340px however tightly
+   it is packed, so it becomes two columns and fits comfortably. */
+@media (max-height: 480px) and (min-width: 620px) {
+  .overlay__panel--split {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    column-gap: 24px;
+    align-items: start;
+    width: min(720px, 100%);
+  }
+
+  .overlay__col {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    max-height: 100%;
+  }
+
+  .overlay__col--b {
+    justify-content: center;
+  }
+
+  .initials,
+  .overlay__col--b .overlay__actions {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: 0;
+  }
+
+  .overlay__col--b .overlay__actions {
+    margin-top: 14px;
+    flex-wrap: nowrap;
+  }
+
+  /* Three buttons wrap in half a landscape panel, and the third then falls
+     past the bottom edge. The leaderboard is a tap from the arcade and the
+     submission already reports your rank, so it is the one that goes. */
+  .overlay__col--b .overlay__actions .btn[href^="/scores"] {
+    display: none;
+  }
+}
+
+
 
 .overlay__panel--brief .overlay__eyebrow,
 .overlay__panel--brief .overlay__title,
@@ -676,6 +766,58 @@ body.is-touch .hud__bottom .hud__hint:last-child {
 
   .overlay__panel--brief .overlay__actions {
     margin-top: 18px;
+  }
+}
+
+/* A short screen — a phone in landscape, or a small one in portrait — cannot
+   fit an overlay laid out for a desktop. Everything tightens rather than
+   spilling into a scroll. */
+@media (max-height: 800px), (max-width: 380px) {
+  .overlay {
+    padding: 12px;
+  }
+
+  .overlay__panel {
+    padding: 16px 16px 14px;
+  }
+
+  .overlay__title {
+    margin-top: 6px;
+    font-size: clamp(20px, 6vw, 26px);
+  }
+
+  .overlay__score {
+    margin-top: 10px;
+    font-size: clamp(30px, 11vw, 44px);
+  }
+
+  .overlay__meta {
+    gap: 14px;
+    margin-top: 12px;
+    padding-top: 10px;
+  }
+
+  .overlay__actions {
+    gap: 8px;
+    margin-top: 14px;
+  }
+
+  .overlay__actions .btn {
+    padding: 10px 14px;
+    font-size: 11px;
+  }
+
+  .overlay__hint {
+    margin-top: 8px;
+  }
+
+  .initials {
+    margin-top: 12px;
+    padding-top: 12px;
+  }
+
+  .brief__tagline {
+    display: none;
   }
 }
 

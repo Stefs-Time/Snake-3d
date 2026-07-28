@@ -110,7 +110,6 @@ export class PlayHost {
       this.canvas,
       this.hud,
       h('div.cabinet__glare'),
-      this.overlayHost,
     );
 
     this.cabinet = h('div.cabinet', this.frame);
@@ -147,6 +146,14 @@ export class PlayHost {
       this.screen,
       this.touchLayer,
     );
+
+    // Overlays never live inside the cabinet frame. A wide game letterboxes
+    // the frame down to a fraction of the window — Bulwark on a 768px-tall
+    // tablet gets 480px of frame — and a game-over panel with initials entry
+    // does not fit that, so its buttons were clipped off the bottom. They
+    // cover the screen area instead, or on a touchscreen the whole play view,
+    // since there the control deck would eat a third of the height too.
+    (this.isTouch ? this.root : this.screen).append(this.overlayHost);
 
     this.resizeObserver = new ResizeObserver(() => this.#fit());
     this.resizeObserver.observe(this.screen);
@@ -590,60 +597,67 @@ export class PlayHost {
     return h(
       'div.overlay.overlay--brief',
       h(
-        'div.overlay__panel.overlay__panel--brief',
-        h('div.overlay__eyebrow', auto ? 'First visit' : 'How to play'),
-        h('div.overlay__title', def.title),
-        h('p.brief__tagline', def.tagline),
-
-        // Only the middle scrolls: on a short cabinet the Start button has to
-        // stay in view, or the card looks broken rather than long.
+        'div.overlay__panel.overlay__panel--split.overlay__panel--brief',
         h(
-          'div.brief__body.scroller',
-          h('p.brief__blurb', def.blurb),
+          'div.overlay__col.overlay__col--a',
+          h('div.overlay__eyebrow', auto ? 'First visit' : 'How to play'),
+          h('div.overlay__title', def.title),
+          h('p.brief__tagline', def.tagline),
 
-          section(
-            'Controls',
-            h('ul.brief__list', ...this.controlLines.map((line) => h('li', line))),
-          ),
+          // Only the middle scrolls, so Start never leaves the screen however
+          // short the panel gets. It sits inside the first column so the
+          // landscape two-column grid has somewhere to put it.
+          h(
+            'div.overlay__body.brief__body.scroller',
+            h('p.brief__blurb', def.blurb),
 
-          optionDefs.length
-          ? section(
-              'Options',
+            section(
+              'Controls',
+              h('ul.brief__list', ...this.controlLines.map((line) => h('li', line))),
+            ),
+
+            optionDefs.length
+              ? section(
+                  'Options',
+                  h(
+                    'ul.brief__list',
+                    ...optionDefs.map((opt) => {
+                      const current = settings.getOption(def.id, opt.id, opt.default);
+                      const choice = opt.choices.find((c) => c.value === current);
+                      return h(
+                        'li',
+                        h('b', `${opt.label}: ${choice?.label ?? current}`),
+                        choice?.hint ? ` \u2014 ${choice.hint}` : '',
+                      );
+                    }),
+                  ),
+                  h('div.brief__note', 'Change these in the bar above the screen at any time.'),
+                )
+              : null,
+
+            section(
+              'Scoring',
               h(
-                'ul.brief__list',
-                ...optionDefs.map((opt) => {
-                  const current = settings.getOption(def.id, opt.id, opt.default);
-                  const choice = opt.choices.find((c) => c.value === current);
-                  return h(
-                    'li',
-                    h('b', `${opt.label}: ${choice?.label ?? current}`),
-                    choice?.hint ? ` — ${choice.hint}` : '',
-                  );
-                }),
+                'div.brief__scoring',
+                h('span', def.scoreLabel),
+                best > 0
+                  ? h('span.brief__best', `Your best \u00b7 ${fmt(best)}`)
+                  : h('span.brief__best', 'No run yet'),
               ),
-              h('div.brief__note', 'Change these in the bar above the screen at any time.'),
-            )
-            : null,
-
-          section(
-            'Scoring',
-            h(
-              'div.brief__scoring',
-              h('span', def.scoreLabel),
-              best > 0
-                ? h('span.brief__best', `Your best · ${fmt(best)}`)
-                : h('span.brief__best', 'No run yet'),
             ),
           ),
         ),
 
         h(
-          'div.overlay__actions',
-          h('button.btn.btn--primary', { type: 'button', onclick: () => this.dismissBriefing() },
-            icon('play', { size: 14, fill: true }), auto ? 'Start' : 'Back to the game'),
-          h('a.btn.btn--ghost', { href: `/scores/${def.id}` }, icon('trophy', { size: 14 }), 'Scores'),
+          'div.overlay__col.overlay__col--b',
+          h(
+            'div.overlay__actions',
+            h('button.btn.btn--primary', { type: 'button', onclick: () => this.dismissBriefing() },
+              icon('play', { size: 14, fill: true }), auto ? 'Start' : 'Back to the game'),
+            h('a.btn.btn--ghost', { href: `/scores/${def.id}` }, icon('trophy', { size: 14 }), 'Scores'),
+          ),
+          h('div.overlay__hint', 'Press ? for this card at any time'),
         ),
-        h('div.overlay__hint', 'Press ? for this card at any time'),
       ),
     );
   }
@@ -700,13 +714,16 @@ export class PlayHost {
     return h(
       'div.overlay',
       h(
-        'div.overlay__panel',
+        'div.overlay__panel.overlay__panel--split',
         h('div.overlay__eyebrow', 'Paused'),
         h('div.overlay__title', this.def.title),
         h(
-          'div.overlay__meta',
-          h('div', h('b', fmt(this.game?.score ?? 0)), h('span', this.def.scoreLabel)),
-          h('div', h('b', fmt(this.game?.level ?? 1)), h('span', 'Level')),
+          'div.overlay__body',
+          h(
+            'div.overlay__meta',
+            h('div', h('b', fmt(this.game?.score ?? 0)), h('span', this.def.scoreLabel)),
+            h('div', h('b', fmt(this.game?.level ?? 1)), h('span', 'Level')),
+          ),
         ),
         h(
           'div.overlay__actions',
@@ -737,21 +754,33 @@ export class PlayHost {
     return h(
       'div.overlay',
       h(
-        'div.overlay__panel',
-        h('div.overlay__eyebrow', isLocalBest && score > 0 ? 'New personal best' : 'Game over'),
-        h('div.overlay__title', isLocalBest && score > 0 ? 'Record!' : 'Game Over'),
-        h('div.overlay__score', fmt(score)),
-        h('div.overlay__score-label', def.scoreLabel),
-        metaRow,
-        initialsEl,
+        'div.overlay__panel.overlay__panel--split',
+        // Two groups, so a wide short screen can lay them out side by side.
+        // They are `display: contents` at every other size, so the panel is
+        // unchanged unless the columns are actually needed.
         h(
-          'div.overlay__actions',
-          h('button.btn.btn--primary', { type: 'button', onclick: () => this.restart() },
-            icon('restart', { size: 14 }), 'Play again'),
-          h('a.btn', { href: `/scores/${def.id}` }, icon('trophy', { size: 14 }), 'Scores'),
-          h('a.btn.btn--ghost', { href: '/' }, 'Arcade'),
+          'div.overlay__col.overlay__col--a',
+          h('div.overlay__eyebrow', isLocalBest && score > 0 ? 'New personal best' : 'Game over'),
+          h('div.overlay__title', isLocalBest && score > 0 ? 'Record!' : 'Game Over'),
+          h('div.overlay__score', fmt(score)),
+          h('div.overlay__score-label', def.scoreLabel),
+          // Only the breakdown scrolls. Entering initials is the point of this
+          // screen, so its field and its submit button stay with the actions
+          // rather than sitting below a fold nobody would find.
+          h('div.overlay__body', metaRow),
         ),
-        h('div.overlay__hint', 'Press R to play again'),
+        h(
+          'div.overlay__col.overlay__col--b',
+          initialsEl,
+          h(
+            'div.overlay__actions',
+            h('button.btn.btn--primary', { type: 'button', onclick: () => this.restart() },
+              icon('restart', { size: 14 }), 'Play again'),
+            h('a.btn', { href: `/scores/${def.id}` }, icon('trophy', { size: 14 }), 'Scores'),
+            h('a.btn.btn--ghost', { href: '/' }, 'Arcade'),
+          ),
+          h('div.overlay__hint', 'Press R to play again'),
+        ),
       ),
     );
   }

@@ -202,6 +202,37 @@ for (let i = 0; i < RUNS; i++) {
   );
 }
 
+// Pace multiplies the whole simulation, so it must not move the wave the keep
+// falls on — only how long that takes in wall-clock. If it does move, the
+// multiplier has leaked into something that is not a rate.
+const byPace = {};
+for (const pace of ['calm', 'brisk', 'blitz']) {
+  await page.goto(`${BASE}/play/bulwark?debug`, { waitUntil: 'networkidle' });
+  await page.waitForFunction(() => window.__cabinet?.game, null, { timeout: 15000 });
+  await page.evaluate((p) => {
+    localStorage.setItem(
+      'neon-cabinet:v1',
+      JSON.stringify({ ...JSON.parse(localStorage.getItem('neon-cabinet:v1') ?? '{}'), options: { bulwark: { pace: p } } }),
+    );
+  }, pace);
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.waitForFunction(() => window.__cabinet?.game, null, { timeout: 15000 });
+  const live = await page.evaluate(() => ({ pace: window.__cabinet.game.pace, scale: window.__cabinet.game.timeScale }));
+  byPace[pace] = { ...live, ...(await page.evaluate(playOneRun, MAX_WAVE)) };
+  console.log(`pace ${pace.padEnd(5)} (x${live.scale}) -> wave ${byPace[pace].wave}`);
+}
+// Not exact equality: a sweep of nine time scales puts eight on the same wave
+// and one a boss cliff away, with no trend either direction, so the run is
+// chaotically sensitive rather than biased. One cliff of spread is the
+// resolution this measurement actually has; more than that is a real leak.
+const paceWaves = Object.values(byPace).map((r) => r.wave);
+const spread = Math.max(...paceWaves) - Math.min(...paceWaves);
+if (spread > 5) {
+  console.error(`\nFAIL: pace changed the difficulty — waves ${paceWaves.join(', ')}`);
+  process.exit(1);
+}
+console.log(`pace spread ${spread} wave(s) — speed is a rate, not a difficulty.`);
+
 console.log('\nwave | keep | towers | levels | gold left');
 for (const row of results[0].log) {
   if (row.wave % 2 && row.wave > 6) continue;

@@ -322,6 +322,68 @@ async function main() {
     problems.push(`[mobile] nav items off the bar: ${navFit.clipped.join(', ')}`);
   }
 
+  // Every button on every overlay has to be hittable where it sits, on a phone
+  // as well as a desktop. The how-to-play card once ran a thousand pixels past
+  // the bottom of the cabinet with its Start button clipped off entirely, so
+  // this checks the card, the pause screen, the game-over screen and the score
+  // submission, at four sizes, without scrolling anything.
+  const reachable = (page, sel) => page.evaluate((s) => {
+    const btns = [...document.querySelectorAll(s)].filter((el) => el.getBoundingClientRect().width > 0);
+    if (!btns.length) return null;
+    return btns.every((btn) => {
+      const r = btn.getBoundingClientRect();
+      const top = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+      return !!top && (top === btn || btn.contains(top));
+    });
+  }, sel);
+
+  for (const [vw, vh, size] of [[390, 844, 'phone'], [844, 390, 'phone-landscape'], [320, 568, 'phone-small']]) {
+    await phone.setViewportSize({ width: vw, height: vh });
+    for (const id of ['chomp', 'bulwark', 'lexicon']) {
+      await phone.goto(`${BASE}/play/${id}?debug`, { waitUntil: 'networkidle' });
+      await phone.waitForFunction(() => window.__cabinet?.game, null, { timeout: 15000 })
+        .catch(() => problems.push(`[${size} ${id}] cabinet never booted`));
+      await sleep(450);
+
+      // This context has met these cabinets already, so the card no longer
+      // shows itself. Ask for it the way the ? button does.
+      if (!(await phone.$('.overlay--brief'))) {
+        await phone.evaluate(() => window.__cabinet.showBriefing());
+        await sleep(300);
+      }
+      if ((await reachable(phone, '.overlay--brief .overlay__actions .btn')) !== true) {
+        problems.push(`[${size} ${id}] a how-to-play button is not where it can be pressed`);
+      }
+      // Tap it for real, not with a forced click.
+      const at = await phone.$eval('.overlay--brief .btn--primary', (el) => {
+        const r = el.getBoundingClientRect();
+        return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+      }).catch(() => null);
+      if (at) await phone.touchscreen.tap(at.x, at.y);
+      await sleep(350);
+      if (await phone.$('.overlay--brief')) problems.push(`[${size} ${id}] tapping Start did not dismiss the card`);
+
+      await phone.evaluate(() => window.__cabinet.togglePause());
+      await sleep(250);
+      if ((await reachable(phone, '.overlay .overlay__actions .btn')) !== true) {
+        problems.push(`[${size} ${id}] a pause button is not where it can be pressed`);
+      }
+      await phone.evaluate(() => window.__cabinet.togglePause());
+      await sleep(250);
+
+      await phone.evaluate(() => window.__cabinet.endRun({ score: 4321, meta: { wave: 9 } }));
+      await sleep(350);
+      if ((await reachable(phone, '.overlay .overlay__actions .btn')) !== true) {
+        problems.push(`[${size} ${id}] a game-over button is not where it can be pressed`);
+      }
+      if ((await reachable(phone, '.initials .btn')) !== true) {
+        problems.push(`[${size} ${id}] the submit-score button is not where it can be pressed`);
+      }
+    }
+  }
+  console.log('  ✓ overlays reachable at three phone sizes');
+  await phone.setViewportSize({ width: 390, height: 844 });
+
   // And the same controls have to survive being turned sideways.
   await phone.setViewportSize({ width: 844, height: 390 });
   for (const id of ['chomp', 'blockfall']) {

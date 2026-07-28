@@ -108,6 +108,35 @@ const WARDEN_AURA = 2.2 * CELL;
 const WARDEN_SHIELD = 0.35;
 
 /**
+ * How fast the siege runs. `speed` multiplies the whole simulation, so Blitz
+ * turns a forty-second wave into seventeen — and the twenty-second build break
+ * into eight, which is why the break is twenty game-seconds at every pace.
+ *
+ * That last part matters. An earlier version shortened the build clock as well,
+ * and since calling a wave in early pays ten gold a second, a shorter clock
+ * quietly halved the player's income: the fast paces fell ten waves sooner. The
+ * clock is a *rule*, the speed is a *rate*, and only rates may scale. With that
+ * separated the wave you die on is identical at every pace, and the bonus is
+ * for the reaction time you give up rather than for a harder game.
+ */
+const BUILD_SECONDS = 20;
+
+const PACES = {
+  calm: {
+    label: 'Calm', speed: 1, score: 1,
+    hint: 'The road walked at its own pace. Twenty seconds to build.',
+  },
+  brisk: {
+    label: 'Brisk', speed: 1.6, score: 1.25,
+    hint: 'Half again as fast — about twelve seconds to build. 1.25x score.',
+  },
+  blitz: {
+    label: 'Blitz', speed: 2.4, score: 1.6,
+    hint: 'Well over double speed, and eight seconds to build. 1.6x score.',
+  },
+};
+
+/**
  * The staged curve. Each entry names a wave where something genuinely new
  * arrives, and the note is shown to the player on the wave it starts, so a
  * new threat is never a surprise you only understand after it has cost you
@@ -138,10 +167,7 @@ export default class Bulwark extends BaseGame {
       id: 'pace',
       label: 'Pace',
       default: 'calm',
-      choices: [
-        { value: 'calm', label: 'Calm', hint: 'Twenty seconds to build between waves.' },
-        { value: 'brisk', label: 'Brisk', hint: 'Eight seconds between waves, and 1.4x the score.' },
-      ],
+      choices: Object.entries(PACES).map(([value, p]) => ({ value, label: p.label, hint: p.hint })),
     },
   ];
 
@@ -182,9 +208,11 @@ export default class Bulwark extends BaseGame {
   }
 
   #applyPace(value) {
-    this.pace = value;
-    this.buildTime = value === 'brisk' ? 8 : 20;
-    this.scoreScale = value === 'brisk' ? 1.4 : 1;
+    const pace = PACES[value] ?? PACES.calm;
+    this.pace = PACES[value] ? value : 'calm';
+    this.buildTime = BUILD_SECONDS;
+    this.timeScale = pace.speed;
+    this.scoreScale = pace.score;
   }
 
   /* ================================================================= path */
@@ -509,7 +537,13 @@ export default class Bulwark extends BaseGame {
   }
 
   #fire(tower, dt) {
-    tower.cooldown -= dt;
+    // Stop draining at zero, so the overshoot is never more than one step, and
+    // add the cooldown rather than assigning it so that overshoot carries into
+    // the next shot. Assigning threw the remainder away, which made every rate
+    // slightly slower than its nominal value — and *more* slowly the larger dt
+    // was, so the fast paces quietly lost a few percent of their damage and
+    // fell five waves earlier than Calm.
+    if (tower.cooldown > 0) tower.cooldown -= dt;
     if (tower.cooldown > 0) return;
 
     const stats = this.#stats(tower);
@@ -525,7 +559,7 @@ export default class Bulwark extends BaseGame {
 
     const [tx, ty] = this.#pointAt(target.distance);
     tower.angle = Math.atan2(ty - tower.y, tx - tower.x);
-    tower.cooldown = stats.cooldown;
+    tower.cooldown += stats.cooldown;
 
     if (stats.chains) {
       // Tesla hits instantly, arcing to the nearest few in range.
@@ -593,6 +627,12 @@ export default class Bulwark extends BaseGame {
   /* =============================================================== update */
 
   update(dt) {
+    // One multiplier over the whole simulation — walkers, shots, cooldowns,
+    // spawn gaps and the build clock alike. Scaling everything together means
+    // a faster pace is genuinely just less waiting: the wave you die on does
+    // not move, which is why the score bonus is modest.
+    dt *= this.timeScale;
+
     this.updateEffects(dt);
     if (this.over) return;
 
@@ -609,11 +649,13 @@ export default class Bulwark extends BaseGame {
 
     /* --- spawning --- */
     if (this.spawnQueue.length) {
-      this.spawnTimer -= dt;
+      // Same carry as the tower cooldowns: a discarded remainder stretched
+      // every spawn gap, and by a different amount at each pace.
+      if (this.spawnTimer > 0) this.spawnTimer -= dt;
       if (this.spawnTimer <= 0) {
         const next = this.spawnQueue.shift();
         this.#spawn(next.kind);
-        this.spawnTimer = next.gap;
+        this.spawnTimer += next.gap;
       }
     } else if (!this.enemies.length) {
       // Wave cleared: pay a bonus, then count down to the next one.

@@ -303,3 +303,63 @@ The smoke test asserts, on a phone and again turned sideways, that no control
 overlaps the playfield, none is under 44px, none is off screen, the page never
 scrolls sideways, the cabinet keeps its height, and every nav item is on the
 bar.
+
+
+---
+
+## Wave nine — the card you could not dismiss, and a faster siege
+
+Two reports: the first-visit card could not be closed on a phone, and Bulwark's
+enemies walk too slowly.
+
+**The card, and every other overlay**
+
+The Start button was unreachable on every phone size and both orientations —
+the panel ran to 1209px inside a 585px overlay. `max-height: 100%` was
+clamping nothing: the overlay's grid row was implicitly `auto`, so it grew to
+fit the panel, and the panel's percentage resolved against a row that had
+already stretched to the panel's own height. The row is `minmax(0, 1fr)` now.
+
+That was the start of it rather than the whole of it.
+
+- Overlays no longer live inside the cabinet frame. A wide game letterboxes the
+  frame to a fraction of the window — Bulwark on a 768px tablet gets 480px —
+  and a game-over panel with initials entry does not fit that. They cover the
+  screen area, or on a touchscreen the whole play view, since there the control
+  deck would take a third of the height as well.
+- Every panel is now a scrolling middle with pinned actions, so "Start", "Play
+  again" and "Submit score" are always where they appear to be. Entering
+  initials is the point of the game-over screen, so it is pinned with the
+  actions rather than left below a fold.
+- A phone held sideways gets a two-column panel: score and breakdown on the
+  left, initials and buttons on the right. Stacked it could not fit 340px
+  however tightly it was packed.
+- Overlay hints all name a key, so they are hidden on a touchscreen.
+
+Verified across twelve viewports from 320x568 to 1920x1080, in both
+orientations, tapping for real rather than with a forced click. The smoke test
+now checks the card, the pause screen, the game-over screen and the score
+submission at three phone sizes.
+
+**Bulwark tempo**
+
+Pace became three steps — Calm, Brisk (1.6x), Blitz (2.4x) — where the
+multiplier scales the entire simulation rather than just the build clock.
+
+Two leaks had to be closed for that to be a tempo and not a difficulty:
+
+- The build break used to shorten with the pace. Calling a wave early pays ten
+  gold a second, so a shorter break quietly halved the player's income and the
+  fast paces fell ten waves sooner. The break is twenty game-seconds at every
+  pace — and since speed scales it, that is still only eight real seconds on
+  Blitz. The clock is a rule; only rates may scale.
+- Tower cooldowns and spawn gaps were assigned rather than accumulated, so each
+  fire discarded its overshoot. That made every rate slightly slower than
+  nominal, and more so the larger `dt` was, costing the fast paces a few
+  percent of their damage. They carry the remainder now, which makes the rates
+  independent of the step size at any speed.
+
+`npm run balance` asserts that pace does not move the wave the keep falls on. A
+sweep of nine time scales puts eight on wave 25 and one a boss cliff away with
+no trend, so the check allows one cliff of spread — that is the resolution the
+measurement actually has.
