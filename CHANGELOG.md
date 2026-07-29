@@ -363,3 +363,94 @@ Two leaks had to be closed for that to be a tempo and not a difficulty:
 sweep of nine time scales puts eight on wave 25 and one a boss cliff away with
 no trend, so the check allows one cliff of spread — that is the resolution the
 measurement actually has.
+
+---
+
+## Wave ten — cards, board games against the dice and the unseen, a ladder
+
+Requested: more card games, more games against an opponent, crossword and
+Scrabble named specifically. Neither of those two translates — a legal-move
+Scrabble opponent needs a real dictionary of tens of thousands of words to
+validate against, and a genuine crossword needs either a hard constraint-solve
+to generate or a hand-authored puzzle set closer to "twelve puzzles" than "a
+crossword game" — both against the house rule of shipping no dictionary and no
+CDN. Word Ladder took the word-game slot instead: it wants the same "change a
+letter, make a word" instinct without needing to validate an arbitrary guess,
+because each ladder carries its own small, verified chain rather than a
+dictionary.
+
+| # | Game | Codename | Core loop |
+| --- | --- | --- | --- |
+| 26 | **Blackjack** | `blackjack` | Six-deck shoe, dealer stands on all 17s, hit/stand/double/split |
+| 27 | **Gin Rummy** | `ginrummy` | Exact deadwood search drives both the knock button and the machine |
+| 28 | **FreeCell** | `freecell` | Every card face up; supermove capacity computed, not assumed |
+| 29 | **Checkers** | `checkers` | Forced capture, mandatory chains, alpha-beta against them |
+| 30 | **Backgammon** | `backgammon` | Full rules including bear-off's oversized-die clause; no doubling cube |
+| 31 | **Battleship** | `battleship` | Checkerboard-parity hunt, then target — 58 shots average to sink a fleet |
+| 32 | **Word Ladder** | `wordladder` | Seventeen hand-verified chains, no dictionary behind any of them |
+
+**What "verified before it shipped" meant this wave**
+
+Every AI and every generator was checked against hand-built positions or
+simulated games *before* being wired into a cabinet, the same discipline
+`balance-bulwark.mjs` established two waves ago — a probe that lies is worse
+than no probe, so the checks ran against pure extracted logic first, in
+isolation, where a wrong answer could not be blamed on a rendering bug.
+
+- **Checkers'** capture-chain generator was checked against eight hand-built
+  board positions — a double-jump, a branch between two separate captures, a
+  promotion that correctly stops a chain mid-jump even though the position
+  otherwise allows continuing (a man does not gain king mobility until the
+  turn after it earns it), and the standard opening's well-known fact of
+  exactly seven legal first moves. Depth-9 alpha-beta measured 600ms–1.4s on a
+  midgame position — long enough to freeze the tab, since this runs
+  synchronously inside the frame loop the way Reversi's search does not need
+  to. Hard mode is capped at depth 7, measured under 200ms.
+- **Backgammon's** rules were checked against a fact anyone can verify without
+  this codebase at all: the standard opening position is exactly 167 pips per
+  side. Eight further positions confirmed bar re-entry exclusivity, blocked
+  points, and both bear-off cases — including one built specifically to catch
+  the single most common bug in an amateur implementation, an oversized die
+  allowed to bear off while a farther checker still sits in the home board.
+  The AI cannot search future dice rolls the way the board games here search
+  future positions, so for whatever it actually rolls it tries every legal
+  way to spend the dice and keeps whichever the position likes best —
+  benchmarked at 10ms on a worst-case double-6 midgame position.
+- **Battleship's** hunt-and-target AI was simulated against 200 random fleets
+  before it ever faced a person: 58 shots on average to sink a full
+  17-cell fleet, against roughly 100 for firing at random. Ship placement is
+  shuffle-and-ready rather than click-to-place — the hunt algorithm never
+  looks at where a human tends to put ships, only at hits and misses as they
+  land, so hand-placing them would add a ritual without a real strategic
+  choice against this particular opponent.
+- **Gin Rummy's** deadwood search — every non-overlapping combination of melds
+  a hand contains, not a heuristic guess — was checked against a run+set hand,
+  a full 10-card gin hand, an 11-card worst-case single-suit run (200 search
+  calls, 2ms), and a no-meld hand, before it became both the knock button's
+  eligibility check and the machine's discard logic. Gin blocks both layoffs
+  and undercuts, which a first pass got wrong for the rare case where the
+  defender's own hand also happens to be a zero-deadwood hand.
+- **FreeCell's** supermove capacity — `(free cells + 1) × 2^(empty columns,
+  excluding the destination)` — is computed exactly rather than assumed
+  unlimited, the mistake that makes a casual implementation feel wrong to
+  anyone who already knows the game.
+- **Word Ladder's** seventeen chains were checked structurally before any of
+  them were written into the game file: every consecutive pair is the same
+  length and differs in exactly one letter, never zero, never two. That is a
+  fact about the strings, checkable with no dictionary at all. Whether the
+  individual words are real rests on picking common, unambiguous ones by
+  hand — the same trust boundary Hangman already draws around its categories.
+
+**Also fixed**
+
+- FreeCell's "FREE" label sat close enough to the top of its own canvas that
+  it visually overlapped the DOM HUD's score readout on some layouts — the
+  HUD's label-plus-value stack actually reaches about 47px, past the 34px
+  band `hudPad.top` reserved for it. FreeCell's band is 46px now.
+
+Catalog genres: the three card games joined Table (with Solitaire and Bingo),
+the three new board games joined Board (with Tic Tac Toe, Connect Four and
+Reversi), Word Ladder joined Word — no new genre filter needed. The hub's
+number-word list was extended past thirty, and the game count on the hub, the
+About page and the manifest description no longer hardcode a number that would
+just go stale again next wave.

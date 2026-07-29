@@ -1,7 +1,7 @@
 {
   "name": "Neon Cabinet — Arcade Classics",
   "short_name": "Neon Cabinet",
-  "description": "Twenty-five games in one installable cabinet — arcade, puzzle, word, board, table and defense, including Snake 3D, Chomp, Blockfall, Solitaire, Sudoku, Connect Four, Bulwark and Cascade. Plays offline, with a global leaderboard.",
+  "description": "Thirty-two games in one installable cabinet — arcade, puzzle, word, table, board and defense, including Snake 3D, Chomp, Blockfall, Blackjack, Sudoku, Checkers, Backgammon, Bulwark and Cascade. Plays offline, with a global leaderboard.",
   "id": "/",
   "start_url": "/",
   "scope": "/",

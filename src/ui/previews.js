@@ -1466,6 +1466,332 @@ const PREVIEWS = {
     }
   },
 
+  /* --- Blackjack: a hand flipping toward 21, chips stacking below --- */
+  blackjack(ctx, w, h, t, accent, accent2) {
+    const cw = Math.min(w * 0.2, h * 0.32);
+    const ch = cw * 1.4;
+    const card = (x, y, faceUp, label, red) => {
+      ctx.save();
+      ctx.fillStyle = faceUp ? '#f4f7ff' : '#161d33';
+      ctx.strokeStyle = faceUp ? 'rgba(0,0,0,0.3)' : accent;
+      ctx.lineWidth = 1.4;
+      const r = 4;
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + cw, y, x + cw, y + ch, r);
+      ctx.arcTo(x + cw, y + ch, x, y + ch, r);
+      ctx.arcTo(x, y + ch, x, y, r);
+      ctx.arcTo(x, y, x + cw, y, r);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      if (faceUp && label) {
+        ctx.fillStyle = red ? '#d81f4a' : '#141821';
+        ctx.font = `700 ${Math.round(cw * 0.34)}px ui-monospace, monospace`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(label, x + cw / 2, y + ch / 2);
+      }
+      ctx.restore();
+    };
+    const cy = h * 0.38;
+    card(w / 2 - cw * 1.05, cy, true, 'A', false);
+    const flip = ((t * 0.7) % 3) < 1;
+    card(w / 2 + cw * 0.05, cy, flip, flip ? 'K' : '', true);
+
+    // Chips stacking underneath.
+    const chipY = h * 0.8;
+    const bounce = Math.abs(Math.sin(t * 1.6)) * 4;
+    for (let i = 0; i < 4; i++) {
+      glow(ctx, i % 2 ? accent : accent2, 6, () => {
+        ctx.beginPath();
+        ctx.arc(w / 2, chipY - i * 6 - (i === 3 ? bounce : 0), cw * 0.32, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+  },
+
+  /* --- Gin Rummy: a hand of cards sorting itself into melds --- */
+  ginrummy(ctx, w, h, t, accent, accent2) {
+    const cw = Math.min(w * 0.13, h * 0.22);
+    const ch = cw * 1.35;
+    const n = 6;
+    const spread = w * 0.62;
+    const x0 = (w - spread) / 2;
+    const sorted = ((t * 0.5) % 4) > 2;
+    const y = h * 0.48;
+    for (let i = 0; i < n; i++) {
+      const groupGap = sorted && i >= 3 ? cw * 0.35 : 0;
+      const x = x0 + i * (spread / (n - 1)) + groupGap;
+      const lift = sorted ? Math.sin(t * 2 + i) * 2 : 0;
+      ctx.save();
+      ctx.translate(x, y + lift);
+      ctx.fillStyle = '#f4f7ff';
+      ctx.strokeStyle = i < 3 ? accent : accent2;
+      ctx.lineWidth = 1.6;
+      const r = 4;
+      ctx.beginPath();
+      ctx.moveTo(-cw / 2 + r, -ch / 2);
+      ctx.arcTo(cw / 2, -ch / 2, cw / 2, ch / 2, r);
+      ctx.arcTo(cw / 2, ch / 2, -cw / 2, ch / 2, r);
+      ctx.arcTo(-cw / 2, ch / 2, -cw / 2, -ch / 2, r);
+      ctx.arcTo(-cw / 2, -ch / 2, cw / 2, -ch / 2, r);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
+  },
+
+  /* --- FreeCell: a card gliding from a full column into an empty one --- */
+  freecell(ctx, w, h, t, accent, accent2) {
+    const cw = Math.min(w * 0.14, h * 0.2);
+    const ch = cw * 1.35;
+    const cols = 5;
+    const gap = w * 0.7 / (cols - 1);
+    const x0 = w * 0.15;
+    const topY = h * 0.24;
+
+    for (let c = 0; c < cols; c++) {
+      const stack = c === 2 ? 0 : 2 + (c % 2);
+      for (let i = 0; i < stack; i++) {
+        ctx.save();
+        ctx.fillStyle = '#f4f7ff';
+        ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+        ctx.lineWidth = 1.2;
+        const x = x0 + c * gap;
+        const y = topY + i * (ch * 0.32);
+        const r = 3;
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.arcTo(x + cw, y, x + cw, y + ch, r);
+        ctx.arcTo(x + cw, y + ch, x, y + ch, r);
+        ctx.arcTo(x, y + ch, x, y, r);
+        ctx.arcTo(x, y, x + cw, y, r);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+    // Empty slot at column 2, dashed.
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+    ctx.setLineDash([3, 4]);
+    ctx.strokeRect(x0 + 2 * gap, topY, cw, ch);
+    ctx.restore();
+
+    // A card gliding from column 0's stack into the empty column.
+    const loop = 2.6;
+    const phase = (t % loop) / loop;
+    const fromX = x0 + cw / 2;
+    const fromY = topY + 2 * (ch * 0.32) + ch / 2;
+    const toX = x0 + 2 * gap + cw / 2;
+    const p = phase < 0.6 ? phase / 0.6 : 1;
+    const fx = fromX + (toX - fromX) * p;
+    const fy = fromY - Math.sin(p * Math.PI) * h * 0.16;
+    ctx.save();
+    ctx.shadowColor = accent2;
+    ctx.shadowBlur = 10;
+    ctx.fillStyle = '#f4f7ff';
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = 1.6;
+    ctx.fillRect(fx - cw / 2, fy - ch / 2, cw, ch);
+    ctx.strokeRect(fx - cw / 2, fy - ch / 2, cw, ch);
+    ctx.restore();
+  },
+
+  /* --- Checkers: a piece hopping a diagonal capture --- */
+  checkers(ctx, w, h, t, accent, accent2) {
+    const n = 6;
+    const cell = Math.min(w, h) / (n + 1);
+    const ox = (w - n * cell) / 2;
+    const oy = (h - n * cell) / 2;
+    for (let r = 0; r < n; r++) {
+      for (let c = 0; c < n; c++) {
+        if ((r + c) % 2 === 0) continue;
+        ctx.fillStyle = 'rgba(255,255,255,0.05)';
+        ctx.fillRect(ox + c * cell, oy + r * cell, cell, cell);
+      }
+    }
+    const piece = (x, y, color, rim) => {
+      ctx.save();
+      ctx.shadowColor = rim;
+      ctx.shadowBlur = 8;
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(x, y, cell * 0.36, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = rim;
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
+      ctx.restore();
+    };
+    // Static pieces.
+    piece(ox + 1 * cell + cell / 2, oy + 4 * cell + cell / 2, '#1f2937', accent2);
+    piece(ox + 3 * cell + cell / 2, oy + 4 * cell + cell / 2, '#1f2937', accent2);
+    piece(ox + 5 * cell + cell / 2, oy + 4 * cell + cell / 2, '#1f2937', accent2);
+
+    // A hopping capture: (2,3) jumps over (3,4)'s neighbour to (4,5).
+    const loop = 2.2;
+    const phase = (t % loop) / loop;
+    const r0 = 2, c0 = 3, r1 = 4, c1 = 5;
+    const x0 = ox + c0 * cell + cell / 2, y0 = oy + r0 * cell + cell / 2;
+    const x1 = ox + c1 * cell + cell / 2, y1 = oy + r1 * cell + cell / 2;
+    const jx = x0 + (x1 - x0) * phase;
+    const jy = y0 + (y1 - y0) * phase - Math.sin(phase * Math.PI) * cell * 0.7;
+    piece(jx, jy, '#e9edf6', accent);
+  },
+
+  /* --- Backgammon: a checker running its points, dice settling --- */
+  backgammon(ctx, w, h, t, accent, accent2) {
+    const rows = 2;
+    const pts = 6;
+    const pw = w * 0.11;
+    const rowH = h * 0.34;
+    const x0 = w * 0.08;
+    for (let row = 0; row < rows; row++) {
+      const y = row === 0 ? h * 0.14 : h * 0.86;
+      const dir = row === 0 ? 1 : -1;
+      for (let p = 0; p < pts; p++) {
+        const x = x0 + p * pw;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + pw / 2, y + dir * rowH);
+        ctx.lineTo(x + pw, y);
+        ctx.closePath();
+        ctx.fillStyle = p % 2 ? mixHex(accent, '#000000', 0.16) : mixHex(accent2, '#000000', 0.1);
+        ctx.globalAlpha = 0.35;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+    }
+    // A checker racing along the top row.
+    const loop = 3;
+    const phase = (t % loop) / loop;
+    const p = phase * (pts - 1);
+    const cx = x0 + p * pw + pw / 2;
+    const cy = h * 0.14 + 14;
+    glow(ctx, '#e9edf6', 8, () => {
+      ctx.beginPath();
+      ctx.arc(cx, cy, pw * 0.28, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    // Two small dice.
+    const dx = w * 0.8;
+    for (let i = 0; i < 2; i++) {
+      ctx.save();
+      ctx.fillStyle = '#f4f7ff';
+      ctx.fillRect(dx + i * 20 - 8, h * 0.5 - 8, 16, 16);
+      ctx.fillStyle = '#141821';
+      ctx.beginPath();
+      ctx.arc(dx + i * 20, h * 0.5, 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+  },
+
+  /* --- Battleship: a targeting reticle sweeping a grid, a hit flashing --- */
+  battleship(ctx, w, h, t, accent, accent2) {
+    const n = 7;
+    const cell = Math.min(w, h) / (n + 1);
+    const ox = (w - n * cell) / 2;
+    const oy = (h - n * cell) / 2;
+    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let i = 0; i <= n; i++) {
+      ctx.moveTo(ox + i * cell, oy);
+      ctx.lineTo(ox + i * cell, oy + n * cell);
+      ctx.moveTo(ox, oy + i * cell);
+      ctx.lineTo(ox + n * cell, oy + i * cell);
+    }
+    ctx.stroke();
+
+    // A small ship silhouette.
+    ctx.save();
+    ctx.fillStyle = mixHex(accent2, '#000000', 0.2);
+    ctx.fillRect(ox + 1 * cell, oy + 2 * cell + cell * 0.3, cell * 3, cell * 0.5);
+    ctx.restore();
+
+    const loop = 2.4;
+    const phase = (t % loop) / loop;
+    const rc = Math.floor(phase * 9);
+    const r = Math.floor(rc / 3) + 1;
+    const c = (rc % 3) + 1;
+    const cx = ox + c * cell + cell / 2;
+    const cy = oy + r * cell + cell / 2;
+    const isHit = r === 2 && c >= 1 && c <= 3;
+
+    ctx.save();
+    ctx.strokeStyle = isHit ? accent : 'rgba(255,255,255,0.4)';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(cx - cell * 0.3, cy);
+    ctx.lineTo(cx + cell * 0.3, cy);
+    ctx.moveTo(cx, cy - cell * 0.3);
+    ctx.lineTo(cx, cy + cell * 0.3);
+    ctx.stroke();
+    ctx.restore();
+
+    if (isHit && phase % 0.34 < 0.17) {
+      glow(ctx, accent, 12, () => {
+        ctx.beginPath();
+        ctx.arc(cx, cy, cell * 0.22, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+  },
+
+  /* --- Word Ladder: letter tiles morphing one at a time --- */
+  wordladder(ctx, w, h, t, accent, accent2) {
+    const words = ['CAT', 'COT', 'COG', 'DOG'];
+    const tile = Math.min(w * 0.16, h * 0.2);
+    const gap = tile * 0.22;
+    const rowGap = tile * 0.3;
+    const totalW = 3 * tile + 2 * gap;
+    const x0 = (w - totalW) / 2;
+    const y0 = h * 0.14;
+
+    const loop = words.length * 1.1;
+    const phase = (t % loop) / 1.1;
+    const rowFloat = Math.min(words.length - 1, phase);
+    const activeRow = Math.floor(rowFloat);
+    const changedLetter = activeRow % 3;
+
+    for (let row = 0; row < words.length; row++) {
+      const y = y0 + row * (tile + rowGap);
+      const word = words[row];
+      for (let col = 0; col < 3; col++) {
+        const x = x0 + col * (tile + gap);
+        const isChanging = row === activeRow + 1 && col === changedLetter;
+        ctx.save();
+        ctx.fillStyle = row <= activeRow ? 'rgba(74,222,128,0.14)' : 'rgba(255,255,255,0.04)';
+        ctx.strokeStyle = isChanging ? accent : row <= activeRow ? accent2 : 'rgba(255,255,255,0.16)';
+        ctx.lineWidth = isChanging ? 2 : 1.2;
+        const r = 5;
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.arcTo(x + tile, y, x + tile, y + tile, r);
+        ctx.arcTo(x + tile, y + tile, x, y + tile, r);
+        ctx.arcTo(x, y + tile, x, y, r);
+        ctx.arcTo(x, y, x + tile, y, r);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        if (row <= activeRow) {
+          ctx.fillStyle = '#e9edf6';
+          ctx.font = `700 ${Math.round(tile * 0.44)}px ui-monospace, monospace`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(word[col], x + tile / 2, y + tile / 2 + 1);
+        }
+        ctx.restore();
+      }
+    }
+  },
+
   default(ctx, w, h, t, accent) {
     glow(ctx, accent, 16, () => {
       ctx.beginPath();

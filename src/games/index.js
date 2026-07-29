@@ -32,6 +32,13 @@ const LOADERS = {
   bulwark: () => import('./bulwark.js'),
   bastion: () => import('./bastion.js'),
   cascade: () => import('./cascade.js'),
+  blackjack: () => import('./blackjack.js'),
+  ginrummy: () => import('./ginrummy.js'),
+  freecell: () => import('./freecell.js'),
+  checkers: () => import('./checkers.js'),
+  backgammon: () => import('./backgammon.js'),
+  battleship: () => import('./battleship.js'),
+  wordladder: () => import('./wordladder.js'),
 };
 
 /**

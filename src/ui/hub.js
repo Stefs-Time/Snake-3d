@@ -16,7 +16,8 @@ const NUMBER_WORDS = [
   'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen',
   'Eighteen', 'Nineteen', 'Twenty', 'Twenty-one', 'Twenty-two', 'Twenty-three',
   'Twenty-four', 'Twenty-five', 'Twenty-six', 'Twenty-seven', 'Twenty-eight',
-  'Twenty-nine', 'Thirty',
+  'Twenty-nine', 'Thirty', 'Thirty-one', 'Thirty-two', 'Thirty-three', 'Thirty-four',
+  'Thirty-five',
 ];
 
 /** So the headline stays true when a cabinet is added. */
@@ -87,8 +88,9 @@ export function renderHub() {
           'p.hero__sub',
           'Snake lifted into 3D, a maze chase with the original ghost AI intact, ' +
             'a stacker with modern rotation rules — then a quieter corner with ' +
-            'solitaire, sudoku and word games, board games with an opponent ' +
-            'that actually searches, and a tower defense to hold the line. ' +
+            'solitaire, sudoku and word games, a card table with blackjack and ' +
+            'gin rummy, board games from tic-tac-toe to backgammon against an ' +
+            'opponent that actually searches, and a tower defense to hold the line. ' +
             'Install it once and the whole arcade works on a plane.',
         ),
         h(

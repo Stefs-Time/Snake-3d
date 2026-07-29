@@ -50,7 +50,10 @@ export default class FreeCell extends BaseGame {
   static touch = 'point';
   static touchButtons = { secondary: 'UNDO' };
   static smooth = true;
-  static hudPad = { top: 34, bottom: 24 };
+  // A little taller than Solitaire's: the "FREE" label sits close to the top
+  // of the canvas, and the DOM HUD's own label+value stack actually reaches
+  // about 47px, past a 34px band, which let the two overlap.
+  static hudPad = { top: 46, bottom: 24 };
   static hudLabels = { score: 'Score', secondary: 'Moves' };
 
   setup() {
