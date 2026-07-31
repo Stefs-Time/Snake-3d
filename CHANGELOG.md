@@ -454,3 +454,39 @@ Reversi), Word Ladder joined Word — no new genre filter needed. The hub's
 number-word list was extended past thirty, and the game count on the hub, the
 About page and the manifest description no longer hardcode a number that would
 just go stale again next wave.
+
+---
+
+## Wave eleven — Bulwark's siege starts over
+
+Requested: on every level increase, sell everything on the board, change the
+board, let the player build again on the new map. Bulwark already had "level"
+boundaries that meant something — the seven stage thresholds (Swarm, Armour,
+Siege, Shades, Wardens, Onslaught) that already interrupt the game to
+announce a genuinely new threat. Those are what trigger it, not every wave:
+a reset every wave would turn a tower-defense game into "place towers, fight
+one wave, repeat," which is a different and worse game.
+
+On each stage boundary, every tower is refunded in full — not the normal 60%
+sell rate, because the player is not choosing to give the board up, the road
+is being pulled out from under them, and losing gold on top of losing the
+whole layout would punish a decision they never made — and a freshly
+generated road replaces the one that was there. The reset lands during the
+break before the new stage's wave, not when the wave itself starts; doing it
+at wave-start would spend the entire rebuild window on nothing.
+
+The road generator only ever steps rightward in x as it turns, which is what
+makes self-intersection structurally impossible rather than something to
+detect and reject afterward: a vertical turn claims an x no earlier segment
+used and none after it will revisit, while the row at each turn and the gap
+between turns still vary enough that it reads as a real new layout, not a
+cosmetic shuffle. 5,000 seeded runs produced zero degenerate paths — no
+zero-length segments, nothing out of bounds — and left a buildable area that
+never dropped below roughly 150 of the grid's 216 cells.
+
+Verified by driving the actual game loop, not a recreation of its rules, past
+several stage boundaries: a tower placed before wave 3 is sold back in full
+the moment the Swarm-stage break begins, the road changes shape and length
+under it, and the following wave starts clean on the new layout with no
+console errors, confirmed both by inspecting state directly through the
+cabinet's debug hook and by screenshot.

@@ -217,9 +217,9 @@ export default class Bulwark extends BaseGame {
 
   /* ================================================================= path */
 
-  #buildPath() {
+  #buildPath(waypoints = WAYPOINTS) {
     const toPixel = ([c, r]) => [MAP_X + (c + 0.5) * CELL, MAP_Y + (r + 0.5) * CELL];
-    this.path = WAYPOINTS.map(toPixel);
+    this.path = waypoints.map(toPixel);
 
     // Cumulative length, so a distance can be turned into a position.
     this.legs = [];
@@ -235,9 +235,9 @@ export default class Bulwark extends BaseGame {
 
     // Every grid cell the road passes through is off limits for building.
     this.road = new Set();
-    for (let i = 0; i < WAYPOINTS.length - 1; i++) {
-      const [c1, r1] = WAYPOINTS[i];
-      const [c2, r2] = WAYPOINTS[i + 1];
+    for (let i = 0; i < waypoints.length - 1; i++) {
+      const [c1, r1] = waypoints[i];
+      const [c2, r2] = waypoints[i + 1];
       const steps = Math.max(Math.abs(c2 - c1), Math.abs(r2 - r1));
       for (let s = 0; s <= steps; s++) {
         const c = Math.round(c1 + ((c2 - c1) * s) / steps);
@@ -245,6 +245,67 @@ export default class Bulwark extends BaseGame {
         this.road.add(`${c},${r}`);
       }
     }
+  }
+
+  /**
+   * A fresh road for a stage reset. Turns only ever step rightward in x,
+   * which is what guarantees the walk can never cross itself — a vertical
+   * turn claims an x no earlier segment used and no later one will revisit —
+   * while the row at each turn and the gap between turns still vary, so it
+   * reads as a genuine new layout rather than a cosmetic shuffle.
+   */
+  #randomWaypoints() {
+    const minY = 1;
+    const maxY = ROWS - 2;
+    const turns = 4 + Math.floor(this.random() * 3); // 4..6
+    const span = COLS - 3; // interior columns 1..COLS-2
+    const step = span / turns;
+
+    const pickY = (avoid) => {
+      for (let tries = 0; tries < 8; tries++) {
+        const y = minY + Math.floor(this.random() * (maxY - minY + 1));
+        if (Math.abs(y - avoid) >= 2) return y;
+      }
+      // Every draw landed too close to the last row: jump to the far band.
+      return avoid <= (minY + maxY) / 2 ? maxY : minY;
+    };
+
+    let y = minY + Math.floor(this.random() * (maxY - minY + 1));
+    const points = [[-1, y]];
+
+    let x = 0;
+    for (let i = 0; i < turns; i++) {
+      const bandStart = 1 + i * step;
+      const bandEnd = 1 + (i + 1) * step;
+      x = Math.min(COLS - 2, Math.max(x + 2, Math.round(bandStart + this.random() * (bandEnd - bandStart))));
+      points.push([x, y]);
+      y = pickY(y);
+      points.push([x, y]);
+    }
+
+    points.push([COLS, y]);
+    return points;
+  }
+
+  /**
+   * Fired when a new stage begins. The road itself changes shape, so a board
+   * tuned for the old one is not just stale — it can actively cover ground
+   * the road no longer touches. Refunding in full rather than at the normal
+   * 60% sell rate matters here: the player is not choosing to give the board
+   * up, the map is being pulled out from under them, and losing gold on top
+   * of losing every tower would punish a decision they never made.
+   */
+  #resetBoard() {
+    for (const tower of this.towers) this.gold += tower.spent;
+    this.towers = [];
+    this.shots = [];
+    this.arcs = [];
+    this.selectedTower = null;
+    this.#buildPath(this.#randomWaypoints());
+    this.banner('New battlefield');
+    this.host.setHint('Board reset — everything sold, the road moved. Rebuild before the wave.',
+      'Board reset — everything sold, the road moved. Rebuild before the wave.');
+    this.play('coin');
   }
 
   /** Position along the road at a given distance from the gate. */
@@ -666,6 +727,12 @@ export default class Bulwark extends BaseGame {
         this.#award(200 + this.wave * 60);
         this.breakTimer = this.buildTime;
         this.play('levelup');
+
+        // A stage boundary resets the board during the break that is about
+        // to run, not when the wave itself starts — otherwise the reset
+        // would land with no time left to rebuild on the new road.
+        const nextStage = this.#stageFor(this.wave + 1);
+        if (nextStage.from === this.wave + 1) this.#resetBoard();
       }
       this.breakTimer -= dt;
       if (this.breakTimer <= 0) this.#startWave();
