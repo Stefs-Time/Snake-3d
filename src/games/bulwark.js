@@ -43,6 +43,30 @@ import { BaseGame } from '../core/game.js';
  * The result is a plateau — roughly waves six to twenty sit at a constant
  * difficulty where play matters — and then a slow decline into a loss
  * somewhere in the thirties. Boss waves are deliberate spikes through it.
+ *
+ * What compounding demand may not do
+ * ----------------------------------
+ * All three of those grow without limit, and the board they are aimed at does
+ * not. Cells run out, tower level stops at three, and past that the player's
+ * answer to a harder wave is fixed forever. Left alone, each one eventually
+ * stops being difficulty and becomes a wall — a wave no board that can exist
+ * beats — and the game had walked into two of them at once:
+ *
+ *   - Armour outgrew the biggest hit in the game, so every tower landed the
+ *     same 12% floor and owning more than one kind stopped meaning anything.
+ *     It now stops at {@link ARMOR_SCALE_CAP}. See `#armorScale`.
+ *   - Boss health scaled like a wave's, but a wave is fought by the whole
+ *     board at once and a boss only by whatever covers the ground it is
+ *     standing on. Total damage compounds with the economy; focused damage
+ *     stops when the roadside fills. Bosses take a gentler curve and arrive one
+ *     at a time to begin with. See `scaleExp` in `ENEMIES` and `#roster`.
+ *
+ * Both were found the same way, and neither is visible in the code: a probe
+ * that fills every buildable cell with a maxed tower and plays on infinite
+ * gold — the best board the rules permit — died on wave 30 at full health, and
+ * every loss the balance probe recorded at any wave was a boss walking in,
+ * never anything else. The rule those two produce is the one to keep: demand
+ * may compound, but only against something the player can still answer.
  */
 
 const COLS = 18;
@@ -83,6 +107,19 @@ const TOWERS = {
     range: 2.3, cooldown: 0.85, damage: 30, splash: 0, slow: 0, speed: 0, chains: 3,
     blurb: 'Arcs to three at once.',
   },
+  // The answer to armour, and the one the late game was missing. Armour is
+  // flat reduction, so a single enormous hit is worth far more against it than
+  // the same damage split up — the Lance is that rule made into a tower rather
+  // than a new mechanic. Its cost is in rate: one shot every 2.2s kills at most
+  // half an enemy a second, so it is the worst tower in the game against a
+  // swarm and the best against the thing walking behind it. The long reach is
+  // what makes it worth siting carefully — it is the only tower that can cover
+  // two legs of a serpentine road at once.
+  lance: {
+    name: 'Lance', cost: 250, color: '#cbd5e1', key: '5',
+    range: 4.8, cooldown: 2.2, damage: 115, splash: 0, slow: 0, speed: 720,
+    blurb: 'One huge hit. Long reach.',
+  },
 };
 
 const TOWER_IDS = Object.keys(TOWERS);
@@ -97,11 +134,35 @@ const ENEMIES = {
   shade: { hp: 90, speed: 118, gold: 9, armor: 2, radius: 9, color: '#818cf8', gap: 0.3, label: 'Shade', slowImmune: true },
   // Shields everything near it, so the support has to die before the wave does.
   warden: { hp: 420, speed: 34, gold: 30, armor: 10, radius: 14, color: '#2dd4bf', gap: 1.6, label: 'Warden', aura: true },
-  boss: { hp: 1400, speed: 27, gold: 140, armor: 14, radius: 18, color: '#fb7185', gap: 1.4, label: 'Boss' },
+  // `scaleExp` bends a kind's health curve away from the wave curve. Only the
+  // boss uses it, and the reason is geometric rather than a difficulty
+  // preference: a wave of thirty is fought by the whole board at once, but a
+  // single boss is only ever fought by the towers whose range happens to cover
+  // where it is standing — and that number stops growing once the ground
+  // beside the road is built out. Total damage keeps compounding with the
+  // economy; focused damage does not. A boss scaled like trash therefore
+  // outruns every board that can exist, which is exactly what made the late
+  // waves unwinnable: every loss the balance probe recorded, at every wave and
+  // on every map, was a boss walking into the keep. Nothing else ever got
+  // through, at any point in any run.
+  boss: { hp: 1400, speed: 27, gold: 140, armor: 14, radius: 18, color: '#fb7185', gap: 1.4, label: 'Boss', scaleExp: 0.93 },
 };
 
 /** What each kind costs the keep if it walks in. */
 const LEAK_DAMAGE = { boss: 6, warden: 4, tank: 3, shade: 2 };
+
+/**
+ * Where armour growth stops, as a multiple of each kind's base. Reached at
+ * wave 16, the Wardens stage — from there the siege gets harder by arriving
+ * tougher and faster, not by getting harder to hurt. See `#armorScale`.
+ */
+const ARMOR_SCALE_CAP = 3.25;
+
+/**
+ * The length band every generated road is held to, in grid cells. See
+ * `#randomWaypoints` — this is the run's difficulty dial, so it is narrow.
+ */
+const ROAD_CELLS = [37, 41];
 
 /** How far a Warden's protection reaches, and how much it absorbs. */
 const WARDEN_AURA = 2.2 * CELL;
@@ -260,8 +321,47 @@ export default class Bulwark extends BaseGame {
    * rule keeps that honest by construction — the road always crosses the map
    * end to end with several vertical runs in between, so range still has to be
    * spent somewhere rather than parked in the middle.
+   *
+   * Length, though, has to be held to a band rather than left to the draw. How
+   * long the road is decides how many seconds every tower gets to shoot at
+   * whatever is walking it, which makes it the single biggest lever on how hard
+   * a run is — and once the map stands for the whole run, an unlucky draw is
+   * not a different map but a worse game. Unbanded, the generator ran 29 to 48
+   * cells and a competent player fell anywhere between wave 20 and wave 40 on
+   * the strength of that one number. So candidates are drawn until one lands in
+   * {@link ROAD_CELLS}, keeping the closest miss if none does. Shape still
+   * varies freely; only the difficulty it implies is pinned.
    */
   #randomWaypoints() {
+    let best = null;
+    let bestMiss = Infinity;
+    const [lo, hi] = ROAD_CELLS;
+    const mid = (lo + hi) / 2;
+
+    for (let attempt = 0; attempt < 60; attempt++) {
+      const points = this.#drawWaypoints();
+      const cells = this.#roadCells(points);
+      if (cells >= lo && cells <= hi) return points;
+      const miss = Math.abs(cells - mid);
+      if (miss < bestMiss) {
+        bestMiss = miss;
+        best = points;
+      }
+    }
+    return best;
+  }
+
+  /** How many cells of road a waypoint list walks, corners included. */
+  #roadCells(points) {
+    let cells = 0;
+    for (let i = 0; i < points.length - 1; i++) {
+      cells += Math.abs(points[i + 1][0] - points[i][0]) + Math.abs(points[i + 1][1] - points[i][1]);
+    }
+    return cells;
+  }
+
+  /** One candidate road. Shape only — {@link #randomWaypoints} judges length. */
+  #drawWaypoints() {
     const minY = 1;
     const maxY = ROWS - 2;
     const turns = 4 + Math.floor(this.random() * 3); // 4..6
@@ -327,7 +427,13 @@ export default class Bulwark extends BaseGame {
     if (wave >= 5) add('tank', Math.floor(wave / 2.5));
     if (wave >= 12) add('shade', 3 + Math.floor((wave - 12) * 0.8));
     if (wave >= 16) add('warden', 1 + Math.floor((wave - 16) / 6));
-    if (wave >= 10 && wave % 5 === 0) add('boss', 1 + Math.floor(wave / 10));
+    // Bosses arrive one at a time to begin with. The count used to be
+    // 1 + wave/10, which put three on the road at wave 20 — the point where a
+    // board is still small enough that three simultaneous focus targets is not
+    // a spike through the plateau but the end of the run. Starting the count
+    // from the first boss wave instead spreads the same escalation over the
+    // waves that can absorb it.
+    if (wave >= 10 && wave % 5 === 0) add('boss', 1 + Math.floor((wave - 10) / 10));
     return roster;
   }
 
@@ -421,21 +527,35 @@ export default class Bulwark extends BaseGame {
    * threat has to compound too or the gap only ever widens.
    */
   #healthScale(wave) {
-    return (1 + (wave - 1) * 0.13) * 1.055 ** (wave - 1);
+    return (1 + (wave - 1) * 0.13) * 1.062 ** (wave - 1);
   }
 
   /**
-   * Armour scales with it. Flat reduction that never grows is irrelevant by
-   * wave ten; growing it is what turns "more of the cheapest tower" from a
-   * strategy into a phase you grow out of.
+   * Armour scales with it, up to a ceiling. Flat reduction that never grows is
+   * irrelevant by wave ten; growing it is what turns "more of the cheapest
+   * tower" from a strategy into a phase you grow out of.
+   *
+   * The ceiling is the part that has to exist. Tower damage stops at level
+   * three, so every tower's biggest hit is fixed forever — 85 for the cannon
+   * that carries most boards. Armour that keeps climbing eventually passes it,
+   * and then that tower is landing the same 12% floor as everything else: the
+   * roster collapses to whichever hit is still bigger than armour, and below
+   * that line no board, however perfect, can put out enough damage to hold.
+   * Uncapped, that arrived at wave 30 — a full board of maxed towers went from
+   * an untouched keep to dead in a single wave — and the approach to it made
+   * wave 25 unwinnable with any board a real economy could pay for. Capping
+   * the scale at {@link ARMOR_SCALE_CAP} holds a boss's armour at 45.5 against
+   * that 85, so the cannon always lands about half of its hit and armour stays
+   * a reason to bring a big one — the Lance — rather than a reason the game is
+   * over whatever you brought.
    */
   #armorScale(wave) {
-    return 1 + (wave - 1) * 0.16;
+    return Math.min(ARMOR_SCALE_CAP, 1 + (wave - 1) * 0.16);
   }
 
   #spawn(kind) {
     const def = ENEMIES[kind];
-    const scale = this.#healthScale(this.wave);
+    const scale = this.#healthScale(this.wave) ** (def.scaleExp ?? 1);
     const hp = def.hp * scale;
     this.enemies.push({
       kind,
@@ -633,7 +753,7 @@ export default class Bulwark extends BaseGame {
       slow: stats.slow,
       color: stats.color,
     });
-    this.play(tower.type === 'cannon' ? 'drop' : 'blip');
+    this.play(tower.type === 'cannon' || tower.type === 'lance' ? 'drop' : 'blip');
   }
 
   #updateShots(dt) {
@@ -824,8 +944,11 @@ export default class Bulwark extends BaseGame {
 
   /* =============================================================== layout */
 
+  // Five cards in the space four used to have. The block below them starts at
+  // MAP_Y + 302 (the selected-tower readout, and the next-wave roster that
+  // shares the slot), so the run has to end above that: 54 + 4 * 48 + 44 = 290.
   #towerButtonRect(i) {
-    return [PANEL_X, MAP_Y + 54 + i * 62, PANEL_W, 54];
+    return [PANEL_X, MAP_Y + 54 + i * 48, PANEL_W, 44];
   }
 
   #upgradeRect() {
@@ -1157,21 +1280,21 @@ export default class Bulwark extends BaseGame {
       this.roundRect(ctx, x, y, w, h, 8).stroke();
       ctx.restore();
 
-      this.glowCircle(ctx, x + 20, y + 20, 7, affordable ? def.color : '#3a4152', on ? 10 : 4);
-      this.text(ctx, def.name, x + 38, y + 15, {
+      this.glowCircle(ctx, x + 20, y + 16, 7, affordable ? def.color : '#3a4152', on ? 10 : 4);
+      this.text(ctx, def.name, x + 38, y + 14, {
         size: 12, color: affordable ? '#e9edf6' : '#5c6478', align: 'left',
       });
-      this.text(ctx, `${def.cost}g`, x + w - 10, y + 15, {
+      this.text(ctx, `${def.cost}g`, x + w - 10, y + 14, {
         size: 11, color: affordable ? '#fbbf24' : '#5c6478', align: 'right',
       });
-      this.text(ctx, def.blurb, x + 10, y + 38, { size: 9, color: '#5c6478', align: 'left', weight: 500 });
+      this.text(ctx, def.blurb, x + 10, y + 32, { size: 9, color: '#5c6478', align: 'left', weight: 500 });
 
       // Hotkey badge, tucked into the corner away from the blurb.
       ctx.save();
       ctx.fillStyle = 'rgba(255,255,255,0.05)';
-      this.roundRect(ctx, x + w - 24, y + 32, 15, 14, 4).fill();
+      this.roundRect(ctx, x + w - 24, y + 25, 15, 14, 4).fill();
       ctx.restore();
-      this.text(ctx, def.key, x + w - 16.5, y + 39, { size: 9, color: '#8b93a7' });
+      this.text(ctx, def.key, x + w - 16.5, y + 32, { size: 9, color: '#8b93a7' });
     });
 
     /* --- selected tower, or what is coming if none is --- */

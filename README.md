@@ -67,7 +67,7 @@ And three about holding something:
 
 | Game | Genre | What it is | Worth knowing |
 | --- | --- | --- | --- |
-| **Bulwark** | Defense | Tower defense. | Enemies are tracked by *distance along the path*, not position, which turns "shoot the one closest to the exit" — the only correct targeting rule — into a single `max()`. Health scales geometrically and waves compress, because gold compounds: with linear health the demand a wave makes grew slower than the defence paying for it, and past wave six the game got easier every wave. It now arrives in named stages — armour that grows, shades that cannot be chilled, wardens that shield their neighbours — and the panel shows the next wave's roster before you call it. The road is generated at setup and then stands for the whole run: a new map every game, never a new map mid-game, because a board you keep is what makes a tower a bet rather than a placement. Three tempos scale the whole simulation, so Blitz is the same siege at two and a half times the speed rather than a different one. |
+| **Bulwark** | Defense | Tower defense. | Enemies are tracked by *distance along the path*, not position, which turns "shoot the one closest to the exit" — the only correct targeting rule — into a single `max()`. Health scales geometrically and waves compress, because gold compounds: with linear health the demand a wave makes grew slower than the defence paying for it, and past wave six the game got easier every wave. It now arrives in named stages — armour that grows, shades that cannot be chilled, wardens that shield their neighbours — and the panel shows the next wave's roster before you call it. The road is generated at setup and then stands for the whole run: a new map every game, never a new map mid-game, because a board you keep is what makes a tower a bet rather than a placement. Demand compounds, but only against what the board can still answer: armour stops growing once it reaches the biggest hit in the game, and bosses take a gentler curve than the waves around them, because a wave is fought by the whole board at once and a boss only by whatever covers the ground it is standing on. Both walls were found by probes rather than by reading — a board of maxed towers on infinite gold died at full health on wave 30, and every loss at every wave was a boss walking in. Three tempos scale the whole simulation, so Blitz is the same siege at two and a half times the speed rather than a different one. |
 | **Bastion** | Defense | Missile Command. | The whole game is the word *nearest*: ammunition is per battery, so the flank you have been defending runs dry first and the shot you need becomes a long arc from the wrong side. Blasts chain. Spare shells pay a bonus, which is the reason not to panic-fire. |
 | **Cascade** | Puzzle | Match three. | The chain is the game — a swap worth three is nothing, one that sets off four rounds of collapse is a level. Four in a line leaves a charged gem, five a prism, and a board with no legal swap reshuffles rather than stranding you. |
 
@@ -216,6 +216,15 @@ then reports the wave the keep falls on. It fails if a competent run survives
 past wave 45 — a tower defense that cannot be lost is not one — or falls before
 wave 12. A model can tell you the shape of a curve; only this tells you the
 game built from it behaves that way.
+
+Two things it now refuses to guess at. A run that hits the simulated-time
+budget without losing is reported as censored and fails the probe, because the
+budget used to be a flat forty game-minutes — about forty waves — so every long
+run was quietly recorded as a wave-40 death and the "survives past 45" check
+could never once have fired. And the three paces are compared on one map, held
+still by seeding `Math.random` before the page loads; against freshly generated
+roads, comparing a run per pace measured the draw rather than the pace and
+failed on maps that were merely unlucky.
 
 Adding `?debug` to any `/play/:id` URL exposes the live cabinet as
 `window.__cabinet` — the running `PlayHost`, its `GameClass` and the game

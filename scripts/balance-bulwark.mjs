@@ -56,6 +56,7 @@ function playOneRun(maxWave) {
     cannon: { cost: 130, range: 3.0 },
     frost: { cost: 95, range: 2.5 },
     tesla: { cost: 190, range: 2.3 },
+    lance: { cost: 250, range: 4.8 },
   };
   const CELL = 36;
   const MAP_X = 20;
@@ -103,11 +104,14 @@ function playOneRun(maxWave) {
     while (spentSomething) {
       spentSomething = false;
 
-      // Armour makes single-target chip damage worthless, so the mix shifts.
+      // Armour makes single-target chip damage worthless, so the mix shifts —
+      // and once bosses arrive it shifts again toward the Lance, whose single
+      // enormous hit is the only thing armour barely touches. A player who
+      // never bought one would understate what the late game can field.
       const wave = game.wave;
       const wanted = wave < 5 ? ['gun', 'gun', 'cannon']
         : wave < 12 ? ['cannon', 'gun', 'tesla', 'frost']
-        : ['tesla', 'cannon', 'cannon', 'frost'];
+        : ['lance', 'tesla', 'cannon', 'lance', 'cannon', 'frost'];
 
       // Upgrade before sprawling: a level-3 tower beats three level-1s for
       // the same gold in range terms, which is the scarce resource here.
@@ -149,7 +153,16 @@ function playOneRun(maxWave) {
   let builtFor = -1;
   const STEP = 1 / 60;
 
-  while (!game.over && game.health > 0 && game.wave <= maxWave && ticks < 60 * 60 * 40) {
+  // Enough simulated time to reach maxWave and then some. This used to be a
+  // flat forty game-minutes, which at roughly a minute a wave stopped every
+  // run at about wave 40 and reported the wave it had got to as the wave it
+  // died on — so a run that was still at full health read exactly like a loss,
+  // and the "survives past 45" check below could never once have fired. A
+  // budget that can silently become the answer is not a measurement, so runs
+  // that hit it are now flagged and fail the probe rather than being reported.
+  const BUDGET = 60 * 90 * maxWave;
+
+  while (!game.over && game.health > 0 && game.wave <= maxWave && ticks < BUDGET) {
     // Build once per break, then let the timer run out and the wave start.
     // Rebuilding every tick would keep resetting the timer and no wave would
     // ever begin — which is exactly what the first version of this did.
@@ -175,6 +188,9 @@ function playOneRun(maxWave) {
   }
 
   return {
+    // True when the clock ran out rather than the keep falling: the run is
+    // censored and its wave number means nothing.
+    censored: ticks >= BUDGET && game.health > 0,
     wave: game.wave,
     health: game.health,
     score: game.score,
@@ -191,11 +207,13 @@ const browser = await chromium.launch({
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 
 const results = [];
+const censored = [];
 for (let i = 0; i < RUNS; i++) {
   await page.goto(`${BASE}/play/bulwark?debug`, { waitUntil: 'networkidle' });
   await page.waitForFunction(() => window.__cabinet?.game, null, { timeout: 15000 });
   const result = await page.evaluate(playOneRun, MAX_WAVE);
   results.push(result);
+  if (result.censored) censored.push(`run ${i + 1}`);
   console.log(
     `run ${i + 1}: fell on wave ${String(result.wave).padStart(2)}` +
     `  (${result.towers} towers, ${result.levels} levels, score ${result.score})`,
@@ -205,6 +223,29 @@ for (let i = 0; i < RUNS; i++) {
 // Pace multiplies the whole simulation, so it must not move the wave the keep
 // falls on — only how long that takes in wall-clock. If it does move, the
 // multiplier has leaked into something that is not a rate.
+//
+// The three paces are played on *the same map*, which is the only way this
+// comparison means anything now that the road is drawn fresh every game. The
+// check used to play one run per pace, which was sound while every game used
+// the same hand-authored road — one run was the pace. Against generated maps
+// it compared three different maps and failed on the draw: measured spreads of
+// ten and fifteen waves between paces that were, in fact, identical. Sampling
+// more runs per pace only buys resolution slowly, because the map moves the
+// answer by more than the thing being measured.
+//
+// So the map is held still instead. Seeding Math.random before the page loads
+// fixes the seed the game takes for its own RNG, and with it the road, so any
+// difference left between the paces is the pace. That is the invariant this is
+// here to defend: identical map, identical run, whatever the clock is doing.
+await page.addInitScript(() => {
+  let s = 0x9e3779b9;
+  Math.random = () => {
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+    return s / 2 ** 32;
+  };
+});
+
+const medianOf = (xs) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
 const byPace = {};
 for (const pace of ['calm', 'brisk', 'blitz']) {
   await page.goto(`${BASE}/play/bulwark?debug`, { waitUntil: 'networkidle' });
@@ -217,9 +258,23 @@ for (const pace of ['calm', 'brisk', 'blitz']) {
   }, pace);
   await page.reload({ waitUntil: 'networkidle' });
   await page.waitForFunction(() => window.__cabinet?.game, null, { timeout: 15000 });
-  const live = await page.evaluate(() => ({ pace: window.__cabinet.game.pace, scale: window.__cabinet.game.timeScale }));
-  byPace[pace] = { ...live, ...(await page.evaluate(playOneRun, MAX_WAVE)) };
-  console.log(`pace ${pace.padEnd(5)} (x${live.scale}) -> wave ${byPace[pace].wave}`);
+  const live = await page.evaluate(() => ({
+    pace: window.__cabinet.game.pace,
+    scale: window.__cabinet.game.timeScale,
+    road: window.__cabinet.game.pathLength,
+  }));
+  const run = await page.evaluate(playOneRun, MAX_WAVE);
+  if (run.censored) censored.push(`${pace} pace run`);
+  byPace[pace] = { ...live, wave: run.wave };
+  console.log(`pace ${pace.padEnd(5)} (x${live.scale}, road ${Math.round(live.road)}px) -> wave ${run.wave}`);
+}
+
+// If the seeding did not take, every pace played a different road and the
+// spread below is measuring the map. Better to say so than to report it.
+const roads = new Set(Object.values(byPace).map((r) => Math.round(r.road)));
+if (roads.size !== 1) {
+  console.error(`\nFAIL: the paces played different maps (${[...roads].join(', ')}px) — the seed did not hold.`);
+  process.exit(1);
 }
 // Not exact equality: a sweep of nine time scales puts eight on the same wave
 // and one a boss cliff away, with no trend either direction, so the run is
@@ -246,10 +301,19 @@ for (const row of results[0].log) {
 }
 
 const waves = results.map((r) => r.wave).sort((a, b) => a - b);
-const median = waves[Math.floor(waves.length / 2)];
+const median = medianOf(waves);
 console.log(`\nwaves reached: ${waves.join(', ')}   median ${median}`);
 
 await browser.close();
+
+// A run that ran out of simulated time never reached a verdict, so neither did
+// this probe. Reporting its wave as a loss is how the old flat budget quietly
+// turned every long run into a wave-40 "death".
+if (censored.length) {
+  console.error(`\nFAIL: ${censored.length} run(s) hit the time budget without losing (${censored.join(', ')}).`);
+  console.error('The keep never fell, so these waves are not results. Raise the budget.');
+  process.exit(1);
+}
 
 if (median > 45) {
   console.error('\nFAIL: the keep survives too long — this curve cannot be lost.');

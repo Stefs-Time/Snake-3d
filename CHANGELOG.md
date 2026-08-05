@@ -529,3 +529,74 @@ run against both the old build and the new one, eight runs each, to confirm the
 change is not a difficulty change hiding in a layout change: the keep falls on
 a median wave 20 either way (old spread 15–25, new 20–25), so a generated road
 is neither easier nor harder than the hand-drawn one it replaces.
+
+---
+
+## Wave thirteen — the wall at twenty-five, and a fifth tower
+
+Reported: wave 25 is unbeatable — it gets harder than the board allows for.
+That turned out to be exactly the right description, and literally true.
+
+**Measuring it.** A second probe answers the question the balance probe cannot:
+it fills every buildable cell with a level-3 tower, hands the player infinite
+gold, and plays. That is the best board the rules permit, so the wave it dies
+on is a hard ceiling — no skill or income beats it. The ceiling was wave 30,
+and the board went from an untouched keep to dead inside that single wave. Wave
+25 sat just under it, reachable only by a board no real economy could pay for.
+
+**Why.** Two things grew without limit against a board that cannot.
+
+Armour scaled linearly and forever, while tower damage stops at level three —
+so the biggest hit in the game was fixed at 85 and armour eventually passed it.
+By wave 25 a cannon landed 17 of its 85 on a boss; by wave 30 every tower in
+the game was at the same 12% floor, which is both unwinnable and uninteresting,
+since owning more than one kind of tower stops meaning anything. Armour now
+stops at 3.25x base, holding a boss at 45.5 against that 85.
+
+Boss health scaled like a wave's, and it should not: a wave of thirty is fought
+by the whole board at once, but a single boss is only ever fought by the towers
+covering the ground it stands on — and that number stops growing once the
+roadside is built out. Total damage compounds with the economy; focused damage
+does not. Bosses now take a gentler curve (`scaleExp`) and arrive one at a time
+to begin with, rather than three abreast at wave 20 when the board is smallest.
+
+The instrumentation is what found this rather than the reading: every loss the
+probe recorded, at every wave, on every map, was a boss walking into the keep.
+Not one grunt, tank, shade or warden ever took the keep down at any point in
+any run. The late game was a boss check wearing a tower defense's clothes.
+
+**The fifth tower.** The Lance: 250g, one enormous hit every 2.2s, and by far
+the longest reach on the board — the only tower that can cover two legs of a
+serpentine road at once. It is the answer to armour, and it adds no mechanic to
+be one: armour is flat reduction, so a single huge hit is worth far more
+against it than the same damage split up, which was already the rule. Its cost
+is rate — it kills at most half an enemy a second, making it the worst tower in
+the game against a swarm and the best against what walks in behind one.
+
+**Where the curve landed.** A competent run now falls on a median wave 35,
+spread 30–40, against a median of 20 before — and it clears wave 25 in fifteen
+of sixteen runs, where half of them used to die at or before it. The ceiling
+moved from 30 to 45. The failure also changed shape: tanks, shades and wardens
+now get through too, so losing is the wave beating you rather than one enemy.
+
+**Two bugs in the measuring instrument**, both of which had been quietly
+lying — and both found only because the numbers stopped making sense:
+
+- The balance probe stopped every run at forty game-minutes, which at about a
+  minute a wave is about wave 40, and reported the wave it had reached as the
+  wave it died on. Runs still at full health read exactly like losses, and its
+  own "survives past wave 45" check could never have fired even once. Runs that
+  hit the budget are now flagged and fail the probe rather than being reported.
+- The pace comparison played one run per pace, which was sound while every game
+  used the same hand-authored road. Against maps generated per game it was
+  comparing three different maps: it reported spreads of ten and fifteen waves
+  between paces that were identical. It now seeds `Math.random` before the page
+  loads so all three paces play the same road, and fails if they did not.
+
+Also: the road generator's length is now held to a 37–41 cell band. Road length
+decides how many seconds every tower gets to shoot, which makes it the biggest
+single lever on a run's difficulty — and once the map stands for the whole run
+(wave twelve), an unlucky draw is not a different map but a worse game. It ran
+29 to 48 cells, and a competent player fell anywhere from wave 20 to wave 40 on
+the strength of that one number. Shape still varies freely; only the difficulty
+it implies is pinned.
