@@ -483,7 +483,7 @@ export const GAMES = [
     codename: 'BULWRK',
     tagline: 'Build it before they arrive.',
     blurb:
-      'A fixed road from the west gate to the keep, and everything else is yours to build on. Four towers — a gun, a splash cannon, a chiller and a tesla that arcs to three at once — each upgradeable twice. The siege arrives in named stages: tanks carry armour that grows every wave, shades cannot be chilled, and wardens shield everything standing near them, so no single tower stays the answer for long. Calling a wave in early pays a bounty for the peace you sold, so the real question is never which tower to build but how much time to sell.',
+      'A road from the west gate to the keep — drawn fresh every game, so no two sieges are fought on the same ground — and everything else is yours to build on. Four towers — a gun, a splash cannon, a chiller and a tesla that arcs to three at once — each upgradeable twice. The siege arrives in named stages: tanks carry armour that grows every wave, shades cannot be chilled, and wardens shield everything standing near them, so no single tower stays the answer for long. Calling a wave in early pays a bounty for the peace you sold, so the real question is never which tower to build but how much time to sell.',
     year: 1990,
     genre: 'Defense',
     accent: '#a3e635',
