@@ -490,3 +490,42 @@ the moment the Swarm-stage break begins, the road changes shape and length
 under it, and the following wave starts clean on the new layout with no
 console errors, confirmed both by inspecting state directly through the
 cabinet's debug hook and by screenshot.
+
+---
+
+## Wave twelve — one map, drawn fresh
+
+Correction to wave eleven, requested after playing it: the map change should be
+an improvement, not a demolition — don't drop everything mid-run. So the reset
+is gone entirely, and the randomness moved to where it costs nothing: the road
+is now generated once at setup and stands for the whole siege. A new map every
+game, never a new map mid-game.
+
+That is the better trade in both directions. A board you keep is the point of
+the genre — every tower is a bet on ground that has to still be worth holding
+twenty waves later, and the bet only means anything if the ground stays; a
+reset at each stage boundary turned all seven of them into a rebuild from
+scratch on top of an already-new threat, which is the moment a player has the
+least attention to spare. Meanwhile the thing the reset was actually good for
+— never fighting the same layout twice — is fully delivered by generating at
+setup, because a run is what a player replays.
+
+The generator itself is unchanged and now does more work than it did: it draws
+the map that decides the whole run rather than a mid-run shuffle. Its rightward
+rule still makes self-intersection impossible by construction, and across
+twelve fresh runs the roads measured 1044–1728px long and left 169–188 of the
+grid's 216 cells buildable, so no run starts on a map that is degenerate in
+either direction.
+
+- `src/games/bulwark.js`: `setup()` builds from `#randomWaypoints()`; the
+  hand-authored `WAYPOINTS` constant and `#resetBoard()` are deleted, along
+  with the stage-boundary call that fired it
+
+Verified by driving the real game loop past every stage threshold — Swarm,
+Armour, Siege, Shades, Wardens, Onslaught — out to wave 27, twelve times: the
+road's cell set and length are byte-identical from setup to the last wave in
+every run, and all twelve runs drew a different map. The balance probe was then
+run against both the old build and the new one, eight runs each, to confirm the
+change is not a difficulty change hiding in a layout change: the keep falls on
+a median wave 20 either way (old spread 15–25, new 20–25), so a generated road
+is neither easier nor harder than the hand-drawn one it replaces.

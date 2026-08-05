@@ -3,9 +3,15 @@ import { BaseGame } from '../core/game.js';
 /**
  * BULWARK — tower defense
  *
- * A fixed serpentine road, and everything else is yours to build on. Enemies
- * walk the road from the west gate to the east; if they reach it, the keep
- * takes damage.
+ * A serpentine road, drawn fresh every game, and everything else is yours to
+ * build on. Enemies walk the road from the west gate to the east; if they
+ * reach it, the keep takes damage.
+ *
+ * The road is generated once, at setup, and then stands for the whole run. A
+ * board you keep is the point of the genre: every tower is a bet on ground
+ * that has to still be worth holding twenty waves later, and that bet only
+ * means anything if the ground stays. What varies is the run, not the middle
+ * of it — no two sieges are fought on the same map.
  *
  * Two decisions carry the design. First, enemies are tracked by *distance
  * travelled along the path* rather than by position, which makes "shoot the
@@ -55,12 +61,6 @@ const W = PANEL_X + PANEL_W + 20;
 const H = MAP_Y + MAP_H + 28;
 
 const KEEP_HEALTH = 20;
-
-/** Grid waypoints. The road runs through the centre of every cell between. */
-const WAYPOINTS = [
-  [-1, 2], [4, 2], [4, 6], [1, 6], [1, 9], [8, 9],
-  [8, 4], [12, 4], [12, 10], [16, 10], [16, 6], [18, 6],
-];
 
 const TOWERS = {
   gun: {
@@ -176,7 +176,8 @@ export default class Bulwark extends BaseGame {
     this.host.setHint('Pick a tower, click open ground · Space calls the next wave',
       'Pick a tower, tap open ground · the bar below calls a wave');
 
-    this.#buildPath();
+    // One road, drawn now, for the whole run.
+    this.#buildPath(this.#randomWaypoints());
     this.#applyPace(this.option('pace'));
 
     this.gold = 220;
@@ -217,7 +218,7 @@ export default class Bulwark extends BaseGame {
 
   /* ================================================================= path */
 
-  #buildPath(waypoints = WAYPOINTS) {
+  #buildPath(waypoints) {
     const toPixel = ([c, r]) => [MAP_X + (c + 0.5) * CELL, MAP_Y + (r + 0.5) * CELL];
     this.path = waypoints.map(toPixel);
 
@@ -248,11 +249,17 @@ export default class Bulwark extends BaseGame {
   }
 
   /**
-   * A fresh road for a stage reset. Turns only ever step rightward in x,
-   * which is what guarantees the walk can never cross itself — a vertical
-   * turn claims an x no earlier segment used and no later one will revisit —
-   * while the row at each turn and the gap between turns still vary, so it
-   * reads as a genuine new layout rather than a cosmetic shuffle.
+   * The road for this run, drawn once at setup. Turns only ever step
+   * rightward in x, which is what guarantees the walk can never cross itself
+   * — a vertical turn claims an x no earlier segment used and no later one
+   * will revisit — while the row at each turn and the gap between turns still
+   * vary, so it reads as a genuine new layout rather than a cosmetic shuffle.
+   *
+   * Generating instead of authoring costs the one thing a hand-drawn road has:
+   * a layout tuned so that no single spot covers everything. The rightward
+   * rule keeps that honest by construction — the road always crosses the map
+   * end to end with several vertical runs in between, so range still has to be
+   * spent somewhere rather than parked in the middle.
    */
   #randomWaypoints() {
     const minY = 1;
@@ -285,27 +292,6 @@ export default class Bulwark extends BaseGame {
 
     points.push([COLS, y]);
     return points;
-  }
-
-  /**
-   * Fired when a new stage begins. The road itself changes shape, so a board
-   * tuned for the old one is not just stale — it can actively cover ground
-   * the road no longer touches. Refunding in full rather than at the normal
-   * 60% sell rate matters here: the player is not choosing to give the board
-   * up, the map is being pulled out from under them, and losing gold on top
-   * of losing every tower would punish a decision they never made.
-   */
-  #resetBoard() {
-    for (const tower of this.towers) this.gold += tower.spent;
-    this.towers = [];
-    this.shots = [];
-    this.arcs = [];
-    this.selectedTower = null;
-    this.#buildPath(this.#randomWaypoints());
-    this.banner('New battlefield');
-    this.host.setHint('Board reset — everything sold, the road moved. Rebuild before the wave.',
-      'Board reset — everything sold, the road moved. Rebuild before the wave.');
-    this.play('coin');
   }
 
   /** Position along the road at a given distance from the gate. */
@@ -727,12 +713,6 @@ export default class Bulwark extends BaseGame {
         this.#award(200 + this.wave * 60);
         this.breakTimer = this.buildTime;
         this.play('levelup');
-
-        // A stage boundary resets the board during the break that is about
-        // to run, not when the wave itself starts — otherwise the reset
-        // would land with no time left to rebuild on the new road.
-        const nextStage = this.#stageFor(this.wave + 1);
-        if (nextStage.from === this.wave + 1) this.#resetBoard();
       }
       this.breakTimer -= dt;
       if (this.breakTimer <= 0) this.#startWave();
