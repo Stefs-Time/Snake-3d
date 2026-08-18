@@ -194,65 +194,6 @@ ol {
   background-clip: content-box;
 }
 
-/* ================================================================= crt == */
-
-.crt {
-  position: fixed;
-  inset: 0;
-  z-index: 9000;
-  pointer-events: none;
-}
-
-[data-crt="off"] .crt {
-  display: none;
-}
-
-.crt__scanlines {
-  position: absolute;
-  inset: 0;
-  background: repeating-linear-gradient(
-    to bottom,
-    rgba(0, 0, 0, 0.22) 0px,
-    rgba(0, 0, 0, 0.22) 1px,
-    transparent 1px,
-    transparent 3px
-  );
-  opacity: 0.55;
-  mix-blend-mode: multiply;
-}
-
-.crt__vignette {
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(130% 110% at 50% 50%, transparent 52%, rgba(0, 0, 0, 0.55) 100%),
-    linear-gradient(to bottom, rgba(0, 0, 0, 0.28), transparent 12%, transparent 88%, rgba(0, 0, 0, 0.32));
-}
-
-.crt__flicker {
-  position: absolute;
-  inset: 0;
-  background: rgba(180, 220, 255, 0.035);
-  animation: flicker 5.5s steps(1, end) infinite;
-}
-
-@keyframes flicker {
-  0%,
-  96%,
-  100% {
-    opacity: 0;
-  }
-  97% {
-    opacity: 0.5;
-  }
-  98% {
-    opacity: 0.1;
-  }
-  99% {
-    opacity: 0.35;
-  }
-}
-
 /* ================================================================ boot == */
 
 .boot {
@@ -364,9 +305,5 @@ ol {
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
-  }
-
-  .crt__flicker {
-    display: none;
   }
 }

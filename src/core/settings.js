@@ -11,7 +11,6 @@ const DEFAULTS = {
   sound: true,
   music: false,
   volume: 0.6,
-  crt: true,
   shake: true,
   credits: 0,
   /** @type {Record<string, { score: number, at: number }>} */
