@@ -196,6 +196,7 @@ export default class Sudoku extends BaseGame {
     // Each cell pays out once — erasing and re-entering is not a money press.
     this.scored = new Set();
     this.entryPop = { index: -1, t: 0 };
+    this.padPop = { digit: -1, t: 0 };
     this.unitFlashes = [];
     this.setLives(MISTAKE_LIMIT);
     this.host.setSecondary(this.puzzleNo);
@@ -244,7 +245,10 @@ export default class Sudoku extends BaseGame {
     }
 
     if (value === 0) {
+      // Erase means erase — pencil marks included, or the button does nothing
+      // visible on a cell that only holds notes.
       this.cells[index] = 0;
+      this.notes[index].clear();
       this.play('back');
       return;
     }
@@ -365,6 +369,7 @@ export default class Sudoku extends BaseGame {
     if (this.over) return;
 
     if (this.entryPop.t > 0) this.entryPop.t -= dt;
+    if (this.padPop.t > 0) this.padPop.t -= dt;
     for (const f of this.unitFlashes) f.t -= dt;
     if (this.unitFlashes.length && this.unitFlashes[0].t <= 0) {
       this.unitFlashes = this.unitFlashes.filter((f) => f.t > 0);
@@ -412,7 +417,10 @@ export default class Sudoku extends BaseGame {
     }
 
     const pad = this.#padHit(m.x, m.y);
-    if (pad !== null) this.#enter(pad);
+    if (pad !== null) {
+      this.padPop = { digit: pad, t: 0.16 };
+      this.#enter(pad);
+    }
   }
 
   /* =============================================================== layout */
@@ -518,6 +526,14 @@ export default class Sudoku extends BaseGame {
     this.clear(ctx, '#070a11');
     ctx.save();
     this.shake.apply(ctx);
+
+    // A quiet pool of light behind the board.
+    const bg = ctx.createRadialGradient(BOARD_X + BOARD / 2, BOARD_Y + BOARD / 2, BOARD * 0.2,
+      BOARD_X + BOARD / 2, BOARD_Y + BOARD / 2, BOARD * 0.8);
+    bg.addColorStop(0, 'rgba(56,189,248,0.035)');
+    bg.addColorStop(1, 'rgba(56,189,248,0)');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
 
     this.#drawGrid(ctx);
     ctx.drawImage(this.#chrome(), 0, 0, W, H);
@@ -648,10 +664,12 @@ export default class Sudoku extends BaseGame {
       const digit = i + 1;
       const [x, y, w, h] = this.#padCellRect(i);
       const done = placed[digit] >= 9;
+      const press = this.padPop.digit === digit && this.padPop.t > 0
+        ? this.padPop.t / 0.16 : 0;
 
-      ctx.drawImage(padKey(done ? 'done' : 'on', w, h), x, y, w, h);
-      this.text(ctx, String(digit), x + w / 2, y + h / 2 - 3, {
-        size: 22, color: done ? '#3a4152' : '#e9edf6',
+      ctx.drawImage(padKey(done ? 'done' : 'on', w, h), x, y + press * 1.5, w, h);
+      this.text(ctx, String(digit), x + w / 2, y + h / 2 - 3 + press * 1.5, {
+        size: 22, color: done ? '#3a4152' : press ? '#ffffff' : '#e9edf6',
       });
       this.text(ctx, String(Math.max(0, 9 - placed[digit])), x + w / 2, y + h - 10, {
         size: 9, color: done ? '#2c3242' : '#5c6478',

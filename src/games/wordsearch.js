@@ -266,7 +266,10 @@ export default class WordSearch extends BaseGame {
       this.play('hover');
     } else if (m.down && this.selection && cell) {
       this.selection.cells = this.#lineBetween(this.selection.start, cell);
-    } else if (m.released && this.selection) {
+    }
+    // Not an else: a tap fast enough to press and release in one step must
+    // still resolve, or the selection lingers as a ghost.
+    if (m.released && this.selection) {
       this.#evaluate(this.selection.cells);
       this.selection = null;
     }

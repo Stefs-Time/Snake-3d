@@ -263,7 +263,7 @@ export default class WordLadder extends BaseGame {
     if (this.shakeRow > 0) this.shakeRow -= dt;
     if (this.lockPop > 0) this.lockPop -= dt;
 
-    if (this.input.keyPressed('Enter')) {
+    if (this.input.keyPressed('Enter') || this.input.keyPressed('NumpadEnter')) {
       this.#submit();
       return;
     }
