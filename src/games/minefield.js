@@ -45,10 +45,26 @@ export default class Minefield extends BaseGame {
     this.board = 1;
     this.flagMode = false;
     this.breakTimer = 0;
+    this.tiles = null;
     this.#newBoard();
+
+    // The input layer reports a press for any button; telling a right-click
+    // apart needs the raw event, so the flag path listens for itself.
+    this.rightDown = false;
+    this.onPointerDown = (e) => {
+      if (e.button === 2) this.rightDown = true;
+    };
+    this.onContextMenu = (e) => e.preventDefault();
+    this.canvas.addEventListener('pointerdown', this.onPointerDown);
+    this.canvas.addEventListener('contextmenu', this.onContextMenu);
 
     this.banner('Mind your step');
     this.play('ready');
+  }
+
+  teardown() {
+    this.canvas.removeEventListener('pointerdown', this.onPointerDown);
+    this.canvas.removeEventListener('contextmenu', this.onContextMenu);
   }
 
   #newBoard() {
@@ -109,6 +125,10 @@ export default class Minefield extends BaseGame {
   /* ============================================================== actions */
 
   #reveal(cell) {
+    // A chord that hits a mine, or one that finishes the board, must not keep
+    // opening its remaining neighbours — that double-counted the win and let
+    // a dead board keep scoring.
+    if (this.exploded || this.breakTimer > 0) return;
     if (cell.revealed || cell.flagged) return;
     if (!this.laid) this.#layMines(cell.r, cell.c);
 
@@ -134,7 +154,12 @@ export default class Minefield extends BaseGame {
       }
     }
 
-    this.addScore(opened * 5);
+    const px = GRID_X + cell.c * CELL + CELL / 2;
+    const py = GRID_Y + cell.r * CELL + CELL / 2;
+    this.particles.emit(px, py, {
+      count: Math.min(14, 4 + opened), speed: 70, color: '#38bdf8', life: 0.35, size: 2,
+    });
+    this.addScore(opened * 5, opened >= 6 ? { x: px, y: py, color: '#38bdf8' } : undefined);
     this.play(opened > 4 ? 'clear' : 'blip');
     this.#checkWin();
   }
@@ -192,7 +217,12 @@ export default class Minefield extends BaseGame {
     const safe = ROWS * COLS - this.mineCount;
     if (this.cleared < safe) return;
     const bonus = 800 + Math.max(0, Math.round(240 - this.elapsed) * 6);
-    this.addScore(bonus);
+    const cx = GRID_X + (COLS * CELL) / 2;
+    const cy = GRID_Y + (ROWS * CELL) / 2;
+    this.addScore(bonus, { x: cx, y: cy, color: '#4ade80' });
+    this.particles.emit(cx, cy, {
+      count: 46, speed: 260, color: '#4ade80', life: 0.8, size: 3,
+    });
     this.banner('Swept');
     this.play('highscore');
     this.board++;
@@ -203,6 +233,9 @@ export default class Minefield extends BaseGame {
 
   update(dt) {
     this.updateEffects(dt);
+    // Consumed every tick, so a right-click never lingers into a later press.
+    const rightClick = this.rightDown;
+    this.rightDown = false;
     if (this.over) return;
 
     if (this.breakTimer > 0) {
@@ -236,7 +269,7 @@ export default class Minefield extends BaseGame {
     if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return;
 
     const cell = this.cells[r][c];
-    const flagging = this.flagMode || this.input.held('secondary');
+    const flagging = this.flagMode || rightClick || this.input.held('secondary');
 
     if (flagging) this.#toggleFlag(cell);
     else if (cell.revealed) this.#chord(cell);
@@ -245,6 +278,48 @@ export default class Minefield extends BaseGame {
 
   /* ================================================================= draw */
 
+  /** The two cell faces, painted once — 256 gradient roundRects a frame is
+   *  exactly the kind of bill an offscreen tile pays off. */
+  #tileSprites() {
+    if (this.tiles) return this.tiles;
+    const dpr = Math.min(2, this.host.dpr || 1);
+    const make = (paint) => {
+      const c = document.createElement('canvas');
+      c.width = Math.round(CELL * dpr);
+      c.height = Math.round(CELL * dpr);
+      const g = c.getContext('2d');
+      g.scale(dpr, dpr);
+      paint(g);
+      return c;
+    };
+    this.tiles = {
+      shut: make((g) => {
+        const grad = g.createLinearGradient(0, 1, 0, CELL - 1);
+        grad.addColorStop(0, '#242e42');
+        grad.addColorStop(1, '#151c29');
+        g.fillStyle = grad;
+        this.roundRect(g, 1, 1, CELL - 2, CELL - 2, 4).fill();
+        g.strokeStyle = 'rgba(255,255,255,0.06)';
+        g.lineWidth = 1;
+        this.roundRect(g, 1.5, 1.5, CELL - 3, CELL - 3, 4).stroke();
+        // A top highlight so unopened cells read as raised.
+        g.fillStyle = 'rgba(255,255,255,0.09)';
+        g.fillRect(4, 2.5, CELL - 8, 1.5);
+      }),
+      open: make((g) => {
+        const grad = g.createLinearGradient(0, 1, 0, CELL - 1);
+        grad.addColorStop(0, 'rgba(255,255,255,0.015)');
+        grad.addColorStop(1, 'rgba(255,255,255,0.05)');
+        g.fillStyle = grad;
+        this.roundRect(g, 1, 1, CELL - 2, CELL - 2, 4).fill();
+        g.strokeStyle = 'rgba(0,0,0,0.4)';
+        g.lineWidth = 1;
+        this.roundRect(g, 1.5, 1.5, CELL - 3, CELL - 3, 4).stroke();
+      }),
+    };
+    return this.tiles;
+  }
+
   draw(ctx) {
     this.clear(ctx, '#080a10');
     ctx.save();
@@ -252,8 +327,18 @@ export default class Minefield extends BaseGame {
 
     this.#drawHeader(ctx);
 
+    // The board sits in a shallow well.
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,255,255,0.02)';
+    this.roundRect(ctx, GRID_X - 8, GRID_Y - 8, COLS * CELL + 16, ROWS * CELL + 16, 10).fill();
+    ctx.strokeStyle = 'rgba(56,189,248,0.14)';
+    ctx.lineWidth = 1;
+    this.roundRect(ctx, GRID_X - 8, GRID_Y - 8, COLS * CELL + 16, ROWS * CELL + 16, 10).stroke();
+    ctx.restore();
+
+    const tiles = this.#tileSprites();
     for (let r = 0; r < ROWS; r++) {
-      for (let c = 0; c < COLS; c++) this.#drawCell(ctx, this.cells[r][c]);
+      for (let c = 0; c < COLS; c++) this.#drawCell(ctx, this.cells[r][c], tiles);
     }
 
     this.drawEffects(ctx);
@@ -262,8 +347,19 @@ export default class Minefield extends BaseGame {
 
   #drawHeader(ctx) {
     const remaining = this.mineCount - this.#flagsUsed();
-    this.text(ctx, `⚑ ${remaining}`, GRID_X, 30, { size: 16, color: '#fb7185', align: 'left' });
+    this.text(ctx, `⚑ ${remaining}`, GRID_X, 30, {
+      size: 16, color: remaining < 0 ? '#fbbf24' : '#fb7185', align: 'left', glow: 6,
+    });
     this.text(ctx, `${Math.floor(this.elapsed)}s`, W / 2, 30, { size: 14, color: '#8b93a7' });
+
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(GRID_X - 8, GRID_Y - 14);
+    ctx.lineTo(W - GRID_X + 8, GRID_Y - 14);
+    ctx.stroke();
+    ctx.restore();
 
     // Flag-mode chip.
     const x = W - 118;
@@ -279,24 +375,21 @@ export default class Minefield extends BaseGame {
     });
   }
 
-  #drawCell(ctx, cell) {
+  #drawCell(ctx, cell, tiles) {
     const x = GRID_X + cell.c * CELL;
     const y = GRID_Y + cell.r * CELL;
-    const inset = 1;
 
     if (!cell.revealed) {
-      ctx.save();
-      ctx.fillStyle = '#1b2230';
-      this.roundRect(ctx, x + inset, y + inset, CELL - inset * 2, CELL - inset * 2, 4).fill();
-      // A top highlight so unopened cells read as raised.
-      ctx.fillStyle = 'rgba(255,255,255,0.06)';
-      ctx.fillRect(x + 3, y + 3, CELL - 6, 2);
-      ctx.restore();
+      ctx.drawImage(tiles.shut, x, y, CELL, CELL);
 
       if (cell.flagged) {
+        const misflag = this.exploded && !cell.mine;
         ctx.save();
-        ctx.shadowColor = '#fb7185';
-        ctx.shadowBlur = 8;
+        if (misflag) ctx.globalAlpha = 0.45;
+        else {
+          ctx.shadowColor = '#fb7185';
+          ctx.shadowBlur = 8;
+        }
         ctx.strokeStyle = '#fb7185';
         ctx.lineWidth = 1.8;
         ctx.beginPath();
@@ -311,14 +404,31 @@ export default class Minefield extends BaseGame {
         ctx.closePath();
         ctx.fill();
         ctx.restore();
+
+        // A flag that was wrong, shown once the board is lost.
+        if (misflag) {
+          ctx.save();
+          ctx.strokeStyle = '#e9edf6';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(x + CELL * 0.26, y + CELL * 0.26);
+          ctx.lineTo(x + CELL * 0.74, y + CELL * 0.74);
+          ctx.moveTo(x + CELL * 0.74, y + CELL * 0.26);
+          ctx.lineTo(x + CELL * 0.26, y + CELL * 0.74);
+          ctx.stroke();
+          ctx.restore();
+        }
       }
       return;
     }
 
-    ctx.save();
-    ctx.fillStyle = cell.boom ? 'rgba(251,113,133,0.35)' : 'rgba(255,255,255,0.035)';
-    this.roundRect(ctx, x + inset, y + inset, CELL - inset * 2, CELL - inset * 2, 4).fill();
-    ctx.restore();
+    ctx.drawImage(tiles.open, x, y, CELL, CELL);
+    if (cell.boom) {
+      ctx.save();
+      ctx.fillStyle = 'rgba(251,113,133,0.35)';
+      this.roundRect(ctx, x + 1, y + 1, CELL - 2, CELL - 2, 4).fill();
+      ctx.restore();
+    }
 
     if (cell.mine) {
       this.glowCircle(ctx, x + CELL / 2, y + CELL / 2, CELL * 0.22, cell.boom ? '#ffffff' : '#fb7185', 10);

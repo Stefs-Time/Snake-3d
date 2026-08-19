@@ -70,9 +70,16 @@ export default class Sudoku extends BaseGame {
     this.puzzleNo = 1;
     this.notesMode = false;
     this.breakTimer = 0;
+    this.finished = false;
+    // Grid chrome is baked into a layer once, not stroked every frame.
+    this.layers = new Map();
     this.#generate(this.option('level'));
     this.banner('Sudoku');
     this.play('ready');
+  }
+
+  resize() {
+    this.layers?.clear();
   }
 
   /** Changing level starts a fresh puzzle, because it *is* a fresh puzzle. */
@@ -186,6 +193,10 @@ export default class Sudoku extends BaseGame {
     this.mistakes = 0;
     this.solved = false;
     this.clues = remaining;
+    // Each cell pays out once — erasing and re-entering is not a money press.
+    this.scored = new Set();
+    this.entryPop = { index: -1, t: 0 };
+    this.unitFlashes = [];
     this.setLives(MISTAKE_LIMIT);
     this.host.setSecondary(this.puzzleNo);
     this.meta = { puzzle: this.puzzleNo, level: this.level };
@@ -254,7 +265,7 @@ export default class Sudoku extends BaseGame {
       this.setLives(Math.max(0, MISTAKE_LIMIT - this.mistakes));
       this.play('hit');
       this.shake.add(6);
-      this.addScore(-40);
+      this.addScore(-Math.min(40, this.score));
       if (this.mistakes >= MISTAKE_LIMIT) {
         this.play('gameover');
         this.breakTimer = 1.4;
@@ -266,9 +277,53 @@ export default class Sudoku extends BaseGame {
     // Clearing a note of this digit from the row, column and box is the
     // bookkeeping every player does by hand anyway.
     this.#pruneNotes(index, value);
-    this.addScore(Math.round(25 * this.levelDef.multiplier));
+    this.entryPop = { index, t: 0.25 };
+    if (!this.scored.has(index)) {
+      this.scored.add(index);
+      const cx = BOARD_X + (index % N) * CELL + CELL / 2;
+      const cy = BOARD_Y + ((index / N) | 0) * CELL + CELL / 2;
+      this.addScore(Math.round(25 * this.levelDef.multiplier), {
+        x: cx, y: cy - 18, color: '#38bdf8',
+      });
+    }
     this.play('select');
+    this.#flashCompletedUnits(index);
     this.#checkSolved();
+  }
+
+  /** A quiet flourish when the digit finishes off its row, column or box. */
+  #flashCompletedUnits(index) {
+    const row = (index / N) | 0;
+    const col = index % N;
+    const br = Math.floor(row / 3) * 3;
+    const bc = Math.floor(col / 3) * 3;
+    const done = (cells) => cells.every((i) => this.cells[i] === this.solution[i]);
+
+    const units = [];
+    const rowCells = [];
+    const colCells = [];
+    const boxCells = [];
+    for (let i = 0; i < N; i++) {
+      rowCells.push(row * N + i);
+      colCells.push(i * N + col);
+    }
+    for (let r = br; r < br + 3; r++) {
+      for (let c = bc; c < bc + 3; c++) boxCells.push(r * N + c);
+    }
+    if (done(rowCells)) units.push(rowCells);
+    if (done(colCells)) units.push(colCells);
+    if (done(boxCells)) units.push(boxCells);
+
+    for (const cells of units) {
+      this.unitFlashes.push({ cells, t: 0.6 });
+      for (const i of cells) {
+        this.particles.emit(
+          BOARD_X + (i % N) * CELL + CELL / 2, BOARD_Y + ((i / N) | 0) * CELL + CELL / 2, {
+            count: 2, speed: 60, color: '#38bdf8', life: 0.45, size: 2, shape: 'circle',
+          });
+      }
+    }
+    if (units.length) this.play('powerup');
   }
 
   #pruneNotes(index, value) {
@@ -289,9 +344,16 @@ export default class Sudoku extends BaseGame {
     for (let i = 0; i < N * N; i++) if (this.cells[i] !== this.solution[i]) return;
     this.solved = true;
     const speed = Math.max(0, 900 - Math.round(this.elapsed) * 2);
-    this.addScore(Math.round((1200 + speed) * this.levelDef.multiplier));
+    this.addScore(Math.round((1200 + speed) * this.levelDef.multiplier), {
+      x: BOARD_X + BOARD / 2, y: BOARD_Y + BOARD / 2, color: '#4ade80',
+    });
     this.banner('Solved!');
     this.play('highscore');
+    for (let i = 0; i < 12; i++) {
+      this.particles.emit(BOARD_X + this.random() * BOARD, BOARD_Y + this.random() * BOARD, {
+        count: 5, speed: 130, color: i % 2 ? '#38bdf8' : '#4ade80', life: 0.8, size: 2.8, shape: 'circle',
+      });
+    }
     this.puzzleNo++;
     this.breakTimer = 2;
   }
@@ -301,6 +363,12 @@ export default class Sudoku extends BaseGame {
   update(dt) {
     this.updateEffects(dt);
     if (this.over) return;
+
+    if (this.entryPop.t > 0) this.entryPop.t -= dt;
+    for (const f of this.unitFlashes) f.t -= dt;
+    if (this.unitFlashes.length && this.unitFlashes[0].t <= 0) {
+      this.unitFlashes = this.unitFlashes.filter((f) => f.t > 0);
+    }
 
     if (this.breakTimer > 0) {
       this.breakTimer -= dt;
@@ -387,12 +455,72 @@ export default class Sudoku extends BaseGame {
 
   /* ================================================================= draw */
 
+  /** Fetch-or-paint an offscreen layer, rendered once at device resolution. */
+  #layer(key, w, h, paint) {
+    let c = this.layers.get(key);
+    if (c) return c;
+    const dpr = Math.min(2, this.host.dpr || 1);
+    c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(w * dpr));
+    c.height = Math.max(1, Math.round(h * dpr));
+    const g = c.getContext('2d');
+    g.scale(dpr, dpr);
+    paint(g);
+    this.layers.set(key, c);
+    return c;
+  }
+
+  /** The lattice, box borders and the wells — none of it ever changes. */
+  #chrome() {
+    return this.#layer('chrome', W, H, (g) => {
+      const well = (x, y, w, h) => {
+        const grad = g.createLinearGradient(0, y, 0, y + h);
+        grad.addColorStop(0, 'rgba(255,255,255,0.030)');
+        grad.addColorStop(1, 'rgba(255,255,255,0.008)');
+        g.fillStyle = grad;
+        this.roundRect(g, x, y, w, h, 12).fill();
+        g.strokeStyle = 'rgba(255,255,255,0.07)';
+        g.lineWidth = 1;
+        this.roundRect(g, x + 0.5, y + 0.5, w - 1, h - 1, 12).stroke();
+      };
+      well(BOARD_X - 12, BOARD_Y - 14, BOARD + 24, BOARD + 28);
+      well(PAD_X - 12, BOARD_Y - 14, PAD_W + 24, BOARD + 28);
+
+      g.strokeStyle = 'rgba(255,255,255,0.10)';
+      g.lineWidth = 1;
+      g.beginPath();
+      for (let i = 0; i <= N; i++) {
+        if (i % 3 === 0) continue;
+        g.moveTo(BOARD_X + i * CELL, BOARD_Y);
+        g.lineTo(BOARD_X + i * CELL, BOARD_Y + BOARD);
+        g.moveTo(BOARD_X, BOARD_Y + i * CELL);
+        g.lineTo(BOARD_X + BOARD, BOARD_Y + i * CELL);
+      }
+      g.stroke();
+
+      // The box borders are what make a Sudoku readable at a glance.
+      g.strokeStyle = 'rgba(56,189,248,0.5)';
+      g.shadowColor = 'rgba(56,189,248,0.5)';
+      g.shadowBlur = 6;
+      g.lineWidth = 2.5;
+      g.beginPath();
+      for (let i = 0; i <= N; i += 3) {
+        g.moveTo(BOARD_X + i * CELL, BOARD_Y);
+        g.lineTo(BOARD_X + i * CELL, BOARD_Y + BOARD);
+        g.moveTo(BOARD_X, BOARD_Y + i * CELL);
+        g.lineTo(BOARD_X + BOARD, BOARD_Y + i * CELL);
+      }
+      g.stroke();
+    });
+  }
+
   draw(ctx) {
     this.clear(ctx, '#070a11');
     ctx.save();
     this.shake.apply(ctx);
 
     this.#drawGrid(ctx);
+    ctx.drawImage(this.#chrome(), 0, 0, W, H);
     this.#drawNumbers(ctx);
     this.#drawPad(ctx);
     this.drawEffects(ctx);
@@ -408,7 +536,7 @@ export default class Sudoku extends BaseGame {
       const x = BOARD_X + (i % N) * CELL;
       const y = BOARD_Y + ((i / N) | 0) * CELL;
 
-      let fill = 'rgba(255,255,255,0.022)';
+      let fill = this.given[i] ? 'rgba(255,255,255,0.035)' : 'rgba(255,255,255,0.015)';
       if (selected != null) {
         const sameRow = ((i / N) | 0) === ((selected / N) | 0);
         const sameCol = i % N === selected % N;
@@ -426,31 +554,23 @@ export default class Sudoku extends BaseGame {
       ctx.fillRect(x + 1, y + 1, CELL - 2, CELL - 2);
     }
 
-    ctx.save();
-    ctx.strokeStyle = 'rgba(255,255,255,0.10)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    for (let i = 0; i <= N; i++) {
-      if (i % 3 === 0) continue;
-      ctx.moveTo(BOARD_X + i * CELL, BOARD_Y);
-      ctx.lineTo(BOARD_X + i * CELL, BOARD_Y + BOARD);
-      ctx.moveTo(BOARD_X, BOARD_Y + i * CELL);
-      ctx.lineTo(BOARD_X + BOARD, BOARD_Y + i * CELL);
+    // Completed rows, columns and boxes glow out gently, once.
+    for (const f of this.unitFlashes) {
+      const a = Math.max(0, f.t / 0.6) * 0.2;
+      ctx.fillStyle = `rgba(56,189,248,${a.toFixed(3)})`;
+      for (const i of f.cells) {
+        ctx.fillRect(BOARD_X + (i % N) * CELL + 1, BOARD_Y + ((i / N) | 0) * CELL + 1, CELL - 2, CELL - 2);
+      }
     }
-    ctx.stroke();
 
-    // The box borders are what make a Sudoku readable at a glance.
-    ctx.strokeStyle = 'rgba(56,189,248,0.5)';
-    ctx.lineWidth = 2.5;
-    ctx.beginPath();
-    for (let i = 0; i <= N; i += 3) {
-      ctx.moveTo(BOARD_X + i * CELL, BOARD_Y);
-      ctx.lineTo(BOARD_X + i * CELL, BOARD_Y + BOARD);
-      ctx.moveTo(BOARD_X, BOARD_Y + i * CELL);
-      ctx.lineTo(BOARD_X + BOARD, BOARD_Y + i * CELL);
+    if (selected != null) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(56,189,248,0.85)';
+      ctx.lineWidth = 2;
+      this.roundRect(ctx, BOARD_X + (selected % N) * CELL + 1.5,
+        BOARD_Y + ((selected / N) | 0) * CELL + 1.5, CELL - 3, CELL - 3, 5).stroke();
+      ctx.restore();
     }
-    ctx.stroke();
-    ctx.restore();
   }
 
   #drawNumbers(ctx) {
@@ -470,10 +590,14 @@ export default class Sudoku extends BaseGame {
         continue;
       }
 
-      const bad = this.#conflicts(i);
+      // A wrong entry already cost a life — it stays red even when it happens
+      // not to clash with anything in sight.
+      const bad = this.#conflicts(i) || (!this.given[i] && value !== this.solution[i]);
       const color = bad ? '#fb7185' : this.given[i] ? '#e9edf6' : '#38bdf8';
+      const pop = i === this.entryPop.index && this.entryPop.t > 0
+        ? 1 + Math.sin((1 - this.entryPop.t / 0.25) * Math.PI) * 0.16 : 1;
       this.text(ctx, String(value), x, y, {
-        size: 27,
+        size: 27 * pop,
         color,
         weight: this.given[i] ? 700 : 500,
         glow: bad ? 10 : 0,
@@ -482,7 +606,7 @@ export default class Sudoku extends BaseGame {
   }
 
   #drawPad(ctx) {
-    this.text(ctx, LEVELS[this.level].label.toUpperCase(), PAD_X, BOARD_Y + 8, {
+    this.text(ctx, this.levelDef.label.toUpperCase(), PAD_X, BOARD_Y + 8, {
       size: 12, color: '#38bdf8', align: 'left', glow: 8,
     });
     this.text(ctx, `${this.clues} clues`, PAD_X + PAD_W, BOARD_Y + 8, {
@@ -498,19 +622,34 @@ export default class Sudoku extends BaseGame {
     const placed = Array(10).fill(0);
     for (const v of this.cells) if (v) placed[v]++;
 
+    const padKey = (state, w, h) => this.#layer(`pad:${state}:${Math.round(w)}`, w, h, (g) => {
+      const grad = g.createLinearGradient(0, 0, 0, h);
+      if (state === 'done') {
+        grad.addColorStop(0, 'rgba(255,255,255,0.045)');
+        grad.addColorStop(1, 'rgba(255,255,255,0.015)');
+      } else {
+        grad.addColorStop(0, 'rgba(56,189,248,0.17)');
+        grad.addColorStop(1, 'rgba(56,189,248,0.06)');
+      }
+      g.fillStyle = grad;
+      this.roundRect(g, 0, 0, w, h, 8).fill();
+      g.strokeStyle = state === 'done' ? 'rgba(255,255,255,0.06)' : 'rgba(56,189,248,0.3)';
+      g.lineWidth = 1;
+      this.roundRect(g, 0.5, 0.5, w - 1, h - 1, 8).stroke();
+      // A thin top light, the thing that makes a flat rect read as a cap.
+      g.strokeStyle = 'rgba(255,255,255,0.09)';
+      g.beginPath();
+      g.moveTo(5, 1.5);
+      g.lineTo(w - 5, 1.5);
+      g.stroke();
+    });
+
     for (let i = 0; i < 9; i++) {
       const digit = i + 1;
       const [x, y, w, h] = this.#padCellRect(i);
       const done = placed[digit] >= 9;
 
-      ctx.save();
-      ctx.fillStyle = done ? 'rgba(255,255,255,0.03)' : 'rgba(56,189,248,0.10)';
-      this.roundRect(ctx, x, y, w, h, 8).fill();
-      ctx.strokeStyle = done ? 'rgba(255,255,255,0.06)' : 'rgba(56,189,248,0.3)';
-      ctx.lineWidth = 1;
-      this.roundRect(ctx, x, y, w, h, 8).stroke();
-      ctx.restore();
-
+      ctx.drawImage(padKey(done ? 'done' : 'on', w, h), x, y, w, h);
       this.text(ctx, String(digit), x + w / 2, y + h / 2 - 3, {
         size: 22, color: done ? '#3a4152' : '#e9edf6',
       });

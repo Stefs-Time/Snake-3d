@@ -41,6 +41,22 @@ const DEALER_Y = 68;
 const PLAYER_Y = 296;
 const BAR_Y = 452;
 
+/** Padding baked around each card sprite so its shadow has room to land. */
+const PAD = 4;
+
+/** Pip positions for 2–10, as [column, row] fractions of the pip box. */
+const PIPS = {
+  2: [[0.5, 0], [0.5, 1]],
+  3: [[0.5, 0], [0.5, 0.5], [0.5, 1]],
+  4: [[0, 0], [1, 0], [0, 1], [1, 1]],
+  5: [[0, 0], [1, 0], [0.5, 0.5], [0, 1], [1, 1]],
+  6: [[0, 0], [1, 0], [0, 0.5], [1, 0.5], [0, 1], [1, 1]],
+  7: [[0, 0], [1, 0], [0.5, 0.25], [0, 0.5], [1, 0.5], [0, 1], [1, 1]],
+  8: [[0, 0], [1, 0], [0.5, 0.25], [0, 0.5], [1, 0.5], [0.5, 0.75], [0, 1], [1, 1]],
+  9: [[0, 0], [1, 0], [0, 1 / 3], [1, 1 / 3], [0.5, 0.5], [0, 2 / 3], [1, 2 / 3], [0, 1], [1, 1]],
+  10: [[0, 0], [1, 0], [0.5, 1 / 6], [0, 1 / 3], [1, 1 / 3], [0, 2 / 3], [1, 2 / 3], [0.5, 5 / 6], [0, 1], [1, 1]],
+};
+
 function rankValue(rank) {
   if (rank === 'A') return 11;
   if (rank === 'J' || rank === 'Q' || rank === 'K') return 10;
@@ -79,8 +95,10 @@ export default class Blackjack extends BaseGame {
     this.host.setHint('Click chips to bet, then Deal · Hit, Stand, Double or Split',
       'Tap chips to bet, then Deal · Hit, Stand, Double or Split');
     this.setLives(1);
+    this.layers = new Map();
 
     this.shoe = [];
+    this.holeFlip = 1;
     this.chips = START_CHIPS;
     this.bet = 0;
     this.hands = [];
@@ -96,6 +114,10 @@ export default class Blackjack extends BaseGame {
     this.host.setSecondary(this.chips);
     this.banner('Place your bet');
     this.play('ready');
+  }
+
+  teardown() {
+    this.layers?.clear();
   }
 
   /* ================================================================= shoe */
@@ -118,7 +140,9 @@ export default class Blackjack extends BaseGame {
 
   #draw() {
     if (this.shoe.length <= RESHUFFLE_BELOW) this.shoe = this.#freshShoe();
-    return this.shoe.pop();
+    const card = this.shoe.pop();
+    card.t = 0; // slides in over the next few frames
+    return card;
   }
 
   /* =============================================================== betting */
@@ -146,7 +170,7 @@ export default class Blackjack extends BaseGame {
   /* ================================================================= deal */
 
   #startRound() {
-    if (this.bet <= 0) return;
+    if (this.phase !== 'bet' || this.bet <= 0) return;
     this.roundNo++;
     this.host.setSecondary(this.chips);
 

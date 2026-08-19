@@ -246,16 +246,35 @@ export default class Reversi extends BaseGame {
   /* =============================================================== playing */
 
   #apply(move, player) {
+    // A real move breaks any run of passes.
+    this.passed = 0;
+    const other = player === HUMAN ? AI : HUMAN;
+    const col0 = move.index % N;
+    const row0 = (move.index / N) | 0;
+
     this.cells[move.index] = player;
     for (const g of move.gains) {
       this.cells[g] = player;
-      this.flipping.push({ index: g, t: 0 });
+      // Flips ripple outward from the placed disc rather than all at once.
+      const dist = Math.max(Math.abs((g % N) - col0), Math.abs(((g / N) | 0) - row0));
+      this.flipping.push({ index: g, t: -dist * 0.045, from: other, place: false });
     }
-    this.flipping.push({ index: move.index, t: 0 });
+    this.flipping.push({ index: move.index, t: 0, from: player, place: true });
+    this.lastIndex = move.index;
     this.play(player === HUMAN ? 'select' : 'blip');
     if (move.gains.length > 3) this.shake.add(3);
+    if (move.gains.length >= 5) {
+      const x = BOARD_X + col0 * CELL + CELL / 2;
+      const y = BOARD_Y + row0 * CELL + CELL / 2;
+      this.particles.emit(x, y, {
+        count: 16, speed: 150, color: player === HUMAN ? '#38bdf8' : '#fb7185', life: 0.55, size: 2.6, shape: 'circle',
+      });
+    }
+    if (player === HUMAN && move.gains.length > 1) {
+      this.popups.add(BOARD_X + col0 * CELL + CELL / 2, BOARD_Y + row0 * CELL + 6, `+${move.gains.length}`, '#38bdf8', 12);
+    }
 
-    this.turn = player === HUMAN ? AI : HUMAN;
+    this.turn = other;
     this.#refreshMoves();
 
     if (!this.moves.length) {
@@ -269,8 +288,6 @@ export default class Reversi extends BaseGame {
       this.turn = this.turn === HUMAN ? AI : HUMAN;
       this.#refreshMoves();
       if (!this.moves.length) this.#finish();
-    } else {
-      this.passed = 0;
     }
 
     if (this.turn === AI && this.result === null) this.aiTimer = 0.45;

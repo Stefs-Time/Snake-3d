@@ -34,6 +34,9 @@ const DIRECTIONS = [
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 const FOUND_COLORS = ['#c084fc', '#22d3ee', '#4ade80', '#facc15', '#fb7185', '#38bdf8', '#f472b6', '#a3e635', '#fb923c', '#2dd4bf'];
 
+/** How long a freshly found band takes to swell to full width. */
+const BAND_POP = 0.35;
+
 export default class WordSearch extends BaseGame {
   static id = 'wordsearch';
   static width = W;
@@ -51,6 +54,10 @@ export default class WordSearch extends BaseGame {
 
     this.round = 0;
     this.roundBreak = 0;
+    this.time = 0;
+    // Gradients and the letter grid are baked into layers, not painted per frame.
+    this.layers = new Map();
+    this.letterLayer = null;
     this.themeOrder = THEMES.map((_, i) => i);
     for (let i = this.themeOrder.length - 1; i > 0; i--) {
       const j = Math.floor(this.random() * (i + 1));
@@ -60,6 +67,11 @@ export default class WordSearch extends BaseGame {
     this.#buildGrid();
     this.banner(this.theme.name);
     this.play('ready');
+  }
+
+  resize() {
+    this.layers?.clear();
+    this.letterLayer = null;
   }
 
   /* ============================================================ the grid */
@@ -80,7 +92,7 @@ export default class WordSearch extends BaseGame {
         this.grid[r][c] = word[i];
         cells.push([r, c]);
       }
-      this.placed.push({ word, cells, found: false, color: FOUND_COLORS[this.placed.length % FOUND_COLORS.length] });
+      this.placed.push({ word, cells, found: false, pop: 0, color: FOUND_COLORS[this.placed.length % FOUND_COLORS.length] });
     }
 
     // Fill the gaps. Drawing from the theme's own letters makes the noise
@@ -94,6 +106,7 @@ export default class WordSearch extends BaseGame {
 
     this.selection = null;
     this.foundCount = 0;
+    this.letterLayer = null;
     this.timeLeft = ROUND_TIME;
     this.host.setSecondary(`0/${this.placed.length}`);
     this.meta = { round: this.round + 1, theme: this.theme.name };
@@ -175,16 +188,23 @@ export default class WordSearch extends BaseGame {
       if (key !== drawn) continue;
 
       entry.found = true;
+      entry.pop = 1;
+      this.letterLayer = null;
       this.foundCount++;
       this.host.setSecondary(`${this.foundCount}/${this.placed.length}`);
-      this.addScore(120 + entry.word.length * 20);
+      const [mr, mc] = entry.cells[Math.floor(entry.cells.length / 2)];
+      const [mx, my] = this.#cellCentre(mr, mc);
+      this.addScore(120 + entry.word.length * 20, { x: mx, y: my - 18, color: entry.color });
       this.play('powerup');
       this.shake.add(3);
 
-      const [mr, mc] = entry.cells[Math.floor(entry.cells.length / 2)];
-      this.particles.emit(GRID_X + mc * CELL + CELL / 2, GRID_Y + mr * CELL + CELL / 2, {
-        count: 16, speed: 120, color: entry.color, life: 0.6, size: 3,
-      });
+      // A trail of sparks along the whole word, not just its middle.
+      for (const [r, c] of entry.cells) {
+        const [x, y] = this.#cellCentre(r, c);
+        this.particles.emit(x, y, {
+          count: 4, speed: 90, color: entry.color, life: 0.55, size: 2.6, shape: 'circle',
+        });
+      }
 
       if (this.foundCount >= this.placed.length) this.#finishRound();
       return;
@@ -194,9 +214,17 @@ export default class WordSearch extends BaseGame {
 
   #finishRound() {
     const bonus = 400 + Math.round(this.timeLeft) * 8;
-    this.addScore(bonus);
+    this.addScore(bonus, {
+      x: GRID_X + GRID_W / 2, y: GRID_Y + GRID_W / 2, color: '#4ade80', label: `Bonus +${bonus}`,
+    });
     this.banner('Grid clear');
     this.play('levelup');
+    for (let i = 0; i < 10; i++) {
+      this.particles.emit(
+        GRID_X + this.random() * GRID_W, GRID_Y + this.random() * GRID_W, {
+          count: 5, speed: 130, color: FOUND_COLORS[i % FOUND_COLORS.length], life: 0.8, size: 2.8, shape: 'circle',
+        });
+    }
     this.round++;
     this.roundBreak = 1.6;
   }
@@ -206,6 +234,11 @@ export default class WordSearch extends BaseGame {
   update(dt) {
     this.updateEffects(dt);
     if (this.over) return;
+
+    this.time += dt;
+    for (const entry of this.placed) {
+      if (entry.pop > 0) entry.pop = Math.max(0, entry.pop - dt / BAND_POP);
+    }
 
     if (this.roundBreak > 0) {
       this.roundBreak -= dt;
@@ -241,14 +274,92 @@ export default class WordSearch extends BaseGame {
 
   /* ================================================================ draw */
 
+  /** Fetch-or-paint an offscreen layer, rendered once at device resolution. */
+  #layer(key, w, h, paint) {
+    let c = this.layers.get(key);
+    if (c) return c;
+    const dpr = Math.min(2, this.host.dpr || 1);
+    c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(w * dpr));
+    c.height = Math.max(1, Math.round(h * dpr));
+    const g = c.getContext('2d');
+    g.scale(dpr, dpr);
+    paint(g);
+    this.layers.set(key, c);
+    return c;
+  }
+
+  /** The static wells behind the grid and the word list. */
+  #backdrop() {
+    return this.#layer('backdrop', W, H, (g) => {
+      const well = (x, y, w, h) => {
+        const grad = g.createLinearGradient(0, y, 0, y + h);
+        grad.addColorStop(0, 'rgba(255,255,255,0.030)');
+        grad.addColorStop(1, 'rgba(255,255,255,0.008)');
+        g.fillStyle = grad;
+        this.roundRect(g, x, y, w, h, 12).fill();
+        g.strokeStyle = 'rgba(255,255,255,0.07)';
+        g.lineWidth = 1;
+        this.roundRect(g, x + 0.5, y + 0.5, w - 1, h - 1, 12).stroke();
+      };
+      well(GRID_X - 12, GRID_Y - 12, GRID_W + 24, GRID_W + 24);
+      well(LIST_X - 14, GRID_Y - 12, W - LIST_X + 6, GRID_W + 24);
+
+      // A faint lattice so the letters read as cells rather than a wall.
+      g.strokeStyle = 'rgba(255,255,255,0.04)';
+      g.lineWidth = 1;
+      g.beginPath();
+      for (let i = 1; i < SIZE; i++) {
+        g.moveTo(GRID_X + i * CELL + 0.5, GRID_Y + 3);
+        g.lineTo(GRID_X + i * CELL + 0.5, GRID_Y + GRID_W - 3);
+        g.moveTo(GRID_X + 3, GRID_Y + i * CELL + 0.5);
+        g.lineTo(GRID_X + GRID_W - 3, GRID_Y + i * CELL + 0.5);
+      }
+      g.stroke();
+    });
+  }
+
+  /**
+   * The letters, baked to a layer and repainted only when a word is found —
+   * 144 text calls per event instead of per frame.
+   */
+  #letters() {
+    if (this.letterLayer) return this.letterLayer;
+    const dpr = Math.min(2, this.host.dpr || 1);
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(GRID_W * dpr));
+    c.height = Math.max(1, Math.round(GRID_W * dpr));
+    const g = c.getContext('2d');
+    g.scale(dpr, dpr);
+
+    const claimed = new Set();
+    for (const entry of this.placed) {
+      if (!entry.found) continue;
+      for (const [r, cc] of entry.cells) claimed.add(r * SIZE + cc);
+    }
+    for (let r = 0; r < SIZE; r++) {
+      for (let cc = 0; cc < SIZE; cc++) {
+        const lit = claimed.has(r * SIZE + cc);
+        this.text(g, this.grid[r][cc], cc * CELL + CELL / 2, r * CELL + CELL / 2, {
+          size: 19,
+          color: lit ? '#f4f7ff' : '#cbd5e6',
+          weight: lit ? 700 : 600,
+        });
+      }
+    }
+    this.letterLayer = c;
+    return c;
+  }
+
   draw(ctx) {
     this.clear(ctx, '#06070d');
     ctx.save();
     this.shake.apply(ctx);
 
+    ctx.drawImage(this.#backdrop(), 0, 0, W, H);
     this.#drawFoundBands(ctx);
     this.#drawSelection(ctx);
-    this.#drawLetters(ctx);
+    ctx.drawImage(this.#letters(), GRID_X, GRID_Y, GRID_W, GRID_W);
     this.#drawList(ctx);
     this.drawEffects(ctx);
 
@@ -265,10 +376,13 @@ export default class WordSearch extends BaseGame {
       if (!entry.found) continue;
       const [x1, y1] = this.#cellCentre(...entry.cells[0]);
       const [x2, y2] = this.#cellCentre(...entry.cells[entry.cells.length - 1]);
+      // A fresh band swells out from a thin line, easing to rest.
+      const t = 1 - entry.pop;
+      const ease = 1 - (1 - t) * (1 - t) * (1 - t);
       ctx.save();
       ctx.strokeStyle = entry.color;
       ctx.globalAlpha = 0.28;
-      ctx.lineWidth = CELL * 0.78;
+      ctx.lineWidth = CELL * 0.78 * (0.3 + 0.7 * ease);
       ctx.lineCap = 'round';
       ctx.beginPath();
       ctx.moveTo(x1, y1);
@@ -284,34 +398,23 @@ export default class WordSearch extends BaseGame {
     const [x1, y1] = this.#cellCentre(...cells[0]);
     const [x2, y2] = this.#cellCentre(...cells[cells.length - 1]);
     ctx.save();
-    ctx.strokeStyle = '#ffffff';
-    ctx.globalAlpha = 0.22;
-    ctx.lineWidth = CELL * 0.78;
     ctx.lineCap = 'round';
+    ctx.strokeStyle = '#22d3ee';
+    ctx.globalAlpha = 0.2;
+    ctx.lineWidth = CELL * 0.78;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+    // A bright spine so the snapped line is unmistakable mid-drag.
+    ctx.globalAlpha = 0.35;
+    ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(x1, y1);
     ctx.lineTo(x2, y2);
     ctx.stroke();
     ctx.restore();
-  }
-
-  #drawLetters(ctx) {
-    ctx.save();
-    ctx.strokeStyle = 'rgba(255,255,255,0.05)';
-    ctx.lineWidth = 1;
-    this.roundRect(ctx, GRID_X - 6, GRID_Y - 6, GRID_W + 12, GRID_W + 12, 10).stroke();
-    ctx.restore();
-
-    for (let r = 0; r < SIZE; r++) {
-      for (let c = 0; c < SIZE; c++) {
-        const [x, y] = this.#cellCentre(r, c);
-        this.text(ctx, this.grid[r][c], x, y, {
-          size: 19,
-          color: '#cbd5e6',
-          weight: 600,
-        });
-      }
-    }
+    this.glowCircle(ctx, x2, y2, 4, '#22d3ee', 10);
   }
 
   #drawList(ctx) {
@@ -321,20 +424,33 @@ export default class WordSearch extends BaseGame {
 
     // Timer bar — the only pressure in the game.
     const barW = W - LIST_X - 22;
-    const pct = this.timeLeft / ROUND_TIME;
+    const pct = Math.max(0, this.timeLeft / ROUND_TIME);
+    const low = pct < 0.2;
     ctx.save();
     ctx.fillStyle = 'rgba(255,255,255,0.08)';
     this.roundRect(ctx, LIST_X, GRID_Y + 22, barW, 6, 3).fill();
-    ctx.fillStyle = pct < 0.2 ? '#fb7185' : '#22d3ee';
+    if (low) {
+      // A slow breathing glow — urgency without a strobe.
+      ctx.globalAlpha = 0.75 + 0.25 * Math.sin(this.time * 3);
+      ctx.shadowColor = '#fb7185';
+      ctx.shadowBlur = 8;
+    }
+    ctx.fillStyle = low ? '#fb7185' : '#22d3ee';
     this.roundRect(ctx, LIST_X, GRID_Y + 22, Math.max(2, barW * pct), 6, 3).fill();
     ctx.restore();
     this.text(ctx, `${Math.ceil(this.timeLeft)}s`, LIST_X + barW, GRID_Y + 40, {
-      size: 11, color: '#8b93a7', align: 'right',
+      size: 11, color: low ? '#fb7185' : '#8b93a7', align: 'right',
     });
 
     this.placed.forEach((entry, i) => {
       const y = GRID_Y + 66 + i * 27;
-      this.text(ctx, entry.word, LIST_X, y, {
+      ctx.save();
+      ctx.fillStyle = entry.found ? entry.color : 'rgba(255,255,255,0.18)';
+      ctx.beginPath();
+      ctx.arc(LIST_X + 4, y, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      this.text(ctx, entry.word, LIST_X + 15, y, {
         size: 14,
         color: entry.found ? entry.color : '#8b93a7',
         align: 'left',
@@ -346,8 +462,8 @@ export default class WordSearch extends BaseGame {
         ctx.globalAlpha = 0.7;
         ctx.lineWidth = 1.5;
         ctx.beginPath();
-        ctx.moveTo(LIST_X - 2, y);
-        ctx.lineTo(LIST_X + entry.word.length * 9.4, y);
+        ctx.moveTo(LIST_X + 13, y);
+        ctx.lineTo(LIST_X + 15 + entry.word.length * 8.5, y);
         ctx.stroke();
         ctx.restore();
       }

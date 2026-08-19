@@ -137,6 +137,30 @@ function applyMove(state, player, move) {
   return { points, bar, off };
 }
 
+/**
+ * How many of these dice can actually be spent from this position. The rule
+ * this backs is easy to forget: a player must use as many dice as possible,
+ * and when only one of two can be played it must be the higher.
+ */
+function maxDiceUsable(points, bar, off, player, dice) {
+  let best = 0;
+  let calls = 0;
+  function explore(state, remaining, used) {
+    if (used > best) best = used;
+    if (!remaining.length || best === dice.length || ++calls > 8000) return;
+    for (const die of new Set(remaining)) {
+      for (const move of movesForDie(state.points, state.bar, player, die)) {
+        const rem = remaining.slice();
+        rem.splice(rem.indexOf(die), 1);
+        explore(applyMove(state, player, move), rem, used + 1);
+        if (best === dice.length) return;
+      }
+    }
+  }
+  explore({ points, bar, off }, dice, 0);
+  return best;
+}
+
 function pipCount(points, bar, player) {
   let pips = bar[player] * 25;
   for (let i = 0; i < 24; i++) {
@@ -190,7 +214,14 @@ function bestSequence(points, bar, off, player, dice) {
     }
     if (!any && seq.length) {
       const value = evaluate(state, player);
-      if (value > best.value) best = { seq, value };
+      // Longer spends win outright — using fewer dice than possible is not a
+      // choice the rules offer — and a lone playable die must be the higher.
+      const better = seq.length > best.seq.length
+        || (seq.length === best.seq.length
+          && (seq.length === 1 && seq[0].die !== best.seq[0].die
+            ? seq[0].die > best.seq[0].die
+            : value > best.value));
+      if (better) best = { seq, value };
     }
   }
   explore({ points, bar, off }, dice, []);
@@ -220,6 +251,8 @@ export default class Backgammon extends BaseGame {
     this.setLives(3);
 
     this.gameNo = 1;
+    this.#buildBoardLayer();
+    this.#buildSprites();
     this.#newGame();
     this.banner('Backgammon');
     this.play('ready');
@@ -238,8 +271,37 @@ export default class Backgammon extends BaseGame {
     this.aiTimer = 0;
     this.message = '';
     this.consecutivePasses = 0;
+    this.lastAiMoves = null;
+    this.legalHuman = [];
     this.host.setSecondary(this.gameNo);
     this.#rollForTurn();
+  }
+
+  /**
+   * The human's legal moves right now, filtered so that no move strands a die
+   * that could otherwise have been played — the "must use both dice" rule.
+   */
+  #refreshLegal() {
+    this.legalHuman = [];
+    if (this.turn !== 'human' || this.result !== null || !this.remaining.length) return;
+    const dice = this.remaining;
+    const maxUse = maxDiceUsable(this.points, this.bar, this.off, 'human', dice);
+    if (!maxUse) return;
+    for (const die of new Set(dice)) {
+      for (const move of movesForDie(this.points, this.bar, 'human', die)) {
+        const next = applyMove({ points: this.points, bar: this.bar, off: this.off }, 'human', move);
+        const rem = dice.slice();
+        rem.splice(rem.indexOf(die), 1);
+        if (1 + maxDiceUsable(next.points, next.bar, next.off, 'human', rem) === maxUse) {
+          this.legalHuman.push(move);
+        }
+      }
+    }
+    if (maxUse === 1 && this.legalHuman.length) {
+      const hi = Math.max(...this.legalHuman.map((mv) => mv.die));
+      this.legalHuman = this.legalHuman.filter((mv) => mv.die === hi);
+    }
+    this.legalSources = [...new Set(this.legalHuman.map((mv) => mv.from))];
   }
 
   #rollForTurn() {
@@ -266,6 +328,7 @@ export default class Backgammon extends BaseGame {
     }
     this.message = '';
     if (this.turn === 'ai') this.aiTimer = 0.6;
+    else this.#refreshLegal();
   }
 
   #anyMovePossible() {
@@ -332,6 +395,7 @@ export default class Backgammon extends BaseGame {
       return;
     }
     for (const move of seq) this.#commitMove('ai', move);
+    this.lastAiMoves = seq;
     this.remaining = [];
     this.#endTurn();
   }
@@ -346,7 +410,16 @@ export default class Backgammon extends BaseGame {
     this.bar = next.bar;
     this.off = next.off;
     this.play(wasHit ? 'hit' : move.to === 'off' ? 'powerup' : 'select');
-    if (wasHit) this.shake.add(3);
+    if (wasHit) {
+      this.shake.add(3);
+      const { row } = pointSlot(move.to);
+      this.particles.emit(pointX(move.to) + POINT_W / 2, row === 'top' ? BOARD_Y + 34 : BOARD_Y + BOARD_H - 34, {
+        count: 12, speed: 120, color: player === 'human' ? '#fb7185' : '#38bdf8', life: 0.5, size: 2.6, shape: 'circle',
+      });
+    }
+    if (move.to === 'off' && player === 'human') {
+      this.popups.add(OFF_X + OFF_W / 2, BOARD_Y + ROW_H + 30, 'OFF', '#4ade80', 12);
+    }
     const i = this.remaining.indexOf(move.die);
     if (i >= 0) this.remaining.splice(i, 1);
   }
@@ -354,7 +427,8 @@ export default class Backgammon extends BaseGame {
   #playerMove(move) {
     this.#commitMove('human', move);
     this.selection = null;
-    if (!this.remaining.length || !this.#anyMovePossible()) {
+    this.#refreshLegal();
+    if (!this.remaining.length || !this.legalHuman.length) {
       this.remaining = [];
       this.#endTurn();
     }
@@ -363,10 +437,8 @@ export default class Backgammon extends BaseGame {
   /** Every legal destination for the currently selected source, one per remaining die. */
   #destinationsFrom(from) {
     const out = [];
-    for (const die of new Set(this.remaining)) {
-      for (const move of movesForDie(this.points, this.bar, 'human', die)) {
-        if (move.from === from) out.push(move);
-      }
+    for (const move of this.legalHuman) {
+      if (move.from === from) out.push(move);
     }
     return out;
   }
@@ -409,8 +481,7 @@ export default class Backgammon extends BaseGame {
       }
     }
 
-    const canSelect = this.bar.human > 0 ? hit === 'bar'
-      : hit !== 'bar' && hit !== 'off' && this.points[hit] > 0;
+    const canSelect = hit !== 'off' && this.legalHuman.some((mv) => mv.from === hit);
     if (canSelect) {
       this.selection = hit;
       this.play('hover');
@@ -420,7 +491,7 @@ export default class Backgammon extends BaseGame {
   }
 
   #hitTest(mx, my) {
-    if (this.hits(mx, my, OFF_X, BOARD_Y, OFF_W, ROW_H)) return 'off';
+    // Only the bottom tray is the human's — the top one belongs to the machine.
     if (this.hits(mx, my, OFF_X, BOARD_Y + ROW_H, OFF_W, ROW_H)) return 'off';
     if (this.bar.human > 0 && this.hits(mx, my, BOARD_X + 6 * POINT_W, BOARD_Y + ROW_H, BAR_W, ROW_H)) return 'bar';
     for (let i = 0; i < 24; i++) {
@@ -448,41 +519,186 @@ export default class Backgammon extends BaseGame {
     ctx.restore();
   }
 
-  #drawBoard(ctx) {
-    ctx.save();
-    ctx.fillStyle = '#161020';
-    this.roundRect(ctx, BOARD_X - 6, BOARD_Y - 6, BOARD_W + 12, BOARD_H + 12, 8).fill();
-    ctx.strokeStyle = 'rgba(192,132,252,0.3)';
-    ctx.lineWidth = 1.5;
-    this.roundRect(ctx, BOARD_X - 6, BOARD_Y - 6, BOARD_W + 12, BOARD_H + 12, 8).stroke();
+  /** The board is static, so every gradient on it is painted exactly once. */
+  #buildBoardLayer() {
+    const scale = 2;
+    const layer = document.createElement('canvas');
+    layer.width = W * scale;
+    layer.height = H * scale;
+    const c = layer.getContext('2d');
+    c.scale(scale, scale);
+
+    const frame = c.createLinearGradient(0, BOARD_Y - 10, 0, BOARD_Y + BOARD_H + 10);
+    frame.addColorStop(0, '#241735');
+    frame.addColorStop(1, '#130b1e');
+    c.fillStyle = frame;
+    this.roundRect(c, BOARD_X - 10, BOARD_Y - 10, BOARD_W + 20, BOARD_H + 20, 10).fill();
+    c.strokeStyle = 'rgba(192,132,252,0.35)';
+    c.lineWidth = 1.5;
+    this.roundRect(c, BOARD_X - 10, BOARD_Y - 10, BOARD_W + 20, BOARD_H + 20, 10).stroke();
+
+    const felt = c.createLinearGradient(0, BOARD_Y, 0, BOARD_Y + BOARD_H);
+    felt.addColorStop(0, '#171126');
+    felt.addColorStop(0.5, '#0e0a18');
+    felt.addColorStop(1, '#171126');
+    c.fillStyle = felt;
+    c.fillRect(BOARD_X, BOARD_Y, BOARD_W, BOARD_H);
 
     for (let i = 0; i < 24; i++) {
       const { row } = pointSlot(i);
       const x = pointX(i);
-      const y = row === 'top' ? BOARD_Y : BOARD_Y + ROW_H;
-      const apex = row === 'top' ? y + ROW_H : y;
-      const tip = row === 'top' ? y + ROW_H * 0.86 : y + ROW_H * 0.14;
-      ctx.beginPath();
-      ctx.moveTo(x, apex);
-      ctx.lineTo(x + POINT_W / 2, tip);
-      ctx.lineTo(x + POINT_W, apex);
-      ctx.closePath();
-      ctx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.045)' : 'rgba(255,255,255,0.02)';
-      ctx.fill();
+      // Base sits on the outer edge; the tip reaches most of the way to the
+      // middle, the way a physical board is cut.
+      const base = row === 'top' ? BOARD_Y : BOARD_Y + BOARD_H;
+      const tip = row === 'top' ? BOARD_Y + ROW_H * 0.86 : BOARD_Y + ROW_H + ROW_H * 0.14;
+      const g = c.createLinearGradient(0, base, 0, tip);
+      if (i % 2 === 0) {
+        g.addColorStop(0, 'rgba(180,123,255,0.28)');
+        g.addColorStop(1, 'rgba(180,123,255,0.04)');
+      } else {
+        g.addColorStop(0, 'rgba(0,229,255,0.18)');
+        g.addColorStop(1, 'rgba(0,229,255,0.03)');
+      }
+      c.beginPath();
+      c.moveTo(x + 2, base);
+      c.lineTo(x + POINT_W / 2, tip);
+      c.lineTo(x + POINT_W - 2, base);
+      c.closePath();
+      c.fillStyle = g;
+      c.fill();
+      c.strokeStyle = 'rgba(255,255,255,0.06)';
+      c.lineWidth = 1;
+      c.stroke();
     }
 
-    ctx.fillStyle = 'rgba(0,0,0,0.35)';
-    ctx.fillRect(BOARD_X + 6 * POINT_W, BOARD_Y, BAR_W, BOARD_H);
-    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
-    ctx.beginPath();
-    ctx.moveTo(BOARD_X, BOARD_Y + ROW_H);
-    ctx.lineTo(BOARD_X + BOARD_W, BOARD_Y + ROW_H);
-    ctx.stroke();
-    ctx.restore();
+    const barG = c.createLinearGradient(BOARD_X + 6 * POINT_W, 0, BOARD_X + 6 * POINT_W + BAR_W, 0);
+    barG.addColorStop(0, 'rgba(0,0,0,0.55)');
+    barG.addColorStop(0.5, 'rgba(30,20,48,0.9)');
+    barG.addColorStop(1, 'rgba(0,0,0,0.55)');
+    c.fillStyle = barG;
+    c.fillRect(BOARD_X + 6 * POINT_W, BOARD_Y, BAR_W, BOARD_H);
+    c.strokeStyle = 'rgba(192,132,252,0.25)';
+    c.lineWidth = 1;
+    c.strokeRect(BOARD_X + 6 * POINT_W + 0.5, BOARD_Y, BAR_W - 1, BOARD_H);
+
+    c.strokeStyle = 'rgba(255,255,255,0.18)';
+    c.beginPath();
+    c.moveTo(BOARD_X, BOARD_Y + ROW_H);
+    c.lineTo(BOARD_X + BOARD_W, BOARD_Y + ROW_H);
+    c.stroke();
+
+    // Bear-off trays as inset wells.
+    for (const y of [BOARD_Y, BOARD_Y + ROW_H]) {
+      const well = c.createLinearGradient(OFF_X, 0, OFF_X + OFF_W, 0);
+      well.addColorStop(0, 'rgba(255,255,255,0.05)');
+      well.addColorStop(1, 'rgba(0,0,0,0.35)');
+      c.fillStyle = well;
+      this.roundRect(c, OFF_X, y, OFF_W, ROW_H, 6).fill();
+      c.strokeStyle = 'rgba(255,255,255,0.14)';
+      c.lineWidth = 1;
+      this.roundRect(c, OFF_X, y, OFF_W, ROW_H, 6).stroke();
+    }
+
+    // Point numbers, etched quietly along the frame edges.
+    c.font = '600 8px ui-monospace, monospace';
+    c.fillStyle = 'rgba(192,132,252,0.4)';
+    c.textAlign = 'center';
+    c.textBaseline = 'middle';
+    for (let i = 0; i < 24; i++) {
+      const { row } = pointSlot(i);
+      const x = pointX(i) + POINT_W / 2;
+      const y = row === 'top' ? BOARD_Y - 16 : BOARD_Y + BOARD_H + 16;
+      c.fillText(String(i + 1), x, y);
+    }
+
+    this.boardLayer = layer;
+  }
+
+  #buildSprites() {
+    const make = (human) => {
+      const scale = 3;
+      const size = Math.ceil(CHECKER_R * 2 + 10);
+      const cnv = document.createElement('canvas');
+      cnv.width = cnv.height = size * scale;
+      const c = cnv.getContext('2d');
+      c.scale(scale, scale);
+      const cx = size / 2;
+      const cy = size / 2;
+      const rim = human ? '#38bdf8' : '#fb7185';
+
+      c.fillStyle = 'rgba(0,0,0,0.45)';
+      c.beginPath();
+      c.ellipse(cx, cy + CHECKER_R * 0.14, CHECKER_R * 1.02, CHECKER_R * 0.9, 0, 0, Math.PI * 2);
+      c.fill();
+
+      const body = c.createRadialGradient(cx - CHECKER_R * 0.35, cy - CHECKER_R * 0.42, CHECKER_R * 0.15, cx, cy, CHECKER_R * 1.05);
+      if (human) {
+        body.addColorStop(0, '#ffffff');
+        body.addColorStop(0.55, '#dbe4f4');
+        body.addColorStop(1, '#8fa5cb');
+      } else {
+        body.addColorStop(0, '#48556e');
+        body.addColorStop(0.55, '#2a354d');
+        body.addColorStop(1, '#131a29');
+      }
+      c.save();
+      c.shadowColor = rim;
+      c.shadowBlur = 5;
+      c.fillStyle = body;
+      c.beginPath();
+      c.arc(cx, cy, CHECKER_R, 0, Math.PI * 2);
+      c.fill();
+      c.restore();
+
+      c.strokeStyle = rim;
+      c.lineWidth = 1.5;
+      c.beginPath();
+      c.arc(cx, cy, CHECKER_R, 0, Math.PI * 2);
+      c.stroke();
+      c.globalAlpha = 0.4;
+      c.lineWidth = 1;
+      c.beginPath();
+      c.arc(cx, cy, CHECKER_R * 0.62, 0, Math.PI * 2);
+      c.stroke();
+      c.globalAlpha = 1;
+
+      const dome = c.createRadialGradient(cx - CHECKER_R * 0.3, cy - CHECKER_R * 0.4, 0, cx - CHECKER_R * 0.3, cy - CHECKER_R * 0.4, CHECKER_R * 0.8);
+      dome.addColorStop(0, human ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.25)');
+      dome.addColorStop(1, 'rgba(255,255,255,0)');
+      c.fillStyle = dome;
+      c.beginPath();
+      c.arc(cx, cy, CHECKER_R, 0, Math.PI * 2);
+      c.fill();
+
+      return { canvas: cnv, size };
+    };
+    this.checkerSprites = { human: make(true), ai: make(false) };
+  }
+
+  #drawBoard(ctx) {
+    ctx.drawImage(this.boardLayer, 0, 0, W, H);
   }
 
   #drawHighlights(ctx) {
     if (this.turn !== 'human' || this.result !== null) return;
+
+    // Where the machine just played, so its turn is legible after the fact.
+    if (this.lastAiMoves) {
+      ctx.save();
+      ctx.fillStyle = 'rgba(251,113,133,0.1)';
+      ctx.strokeStyle = 'rgba(251,113,133,0.35)';
+      ctx.lineWidth = 1.5;
+      for (const mv of this.lastAiMoves) {
+        if (mv.to === 'off') continue;
+        const { row } = pointSlot(mv.to);
+        const x = pointX(mv.to);
+        const y = row === 'top' ? BOARD_Y : BOARD_Y + ROW_H;
+        ctx.fillRect(x + 1, y + 1, POINT_W - 2, ROW_H - 2);
+        ctx.strokeRect(x + 1, y + 1, POINT_W - 2, ROW_H - 2);
+      }
+      ctx.restore();
+    }
+
     const targets = this.selection != null ? this.#destinationsFrom(this.selection) : [];
     const pulse = 0.35 + Math.abs(Math.sin(performance.now() / 420)) * 0.3;
 
@@ -520,13 +736,23 @@ export default class Backgammon extends BaseGame {
       ctx.restore();
     }
 
-    // No selection yet, but a checker is on the bar: point at it.
-    if (this.selection == null && this.bar.human > 0) {
+    // No selection yet: mark every checker that can legally move.
+    if (this.selection == null) {
       ctx.save();
       ctx.globalAlpha = pulse;
       ctx.strokeStyle = '#ffd23f';
-      ctx.lineWidth = 2.5;
-      ctx.strokeRect(BOARD_X + 6 * POINT_W + 2, BOARD_Y + ROW_H + 2, BAR_W - 4, ROW_H - 4);
+      for (const from of this.legalSources ?? []) {
+        if (from === 'bar') {
+          ctx.lineWidth = 2.5;
+          ctx.strokeRect(BOARD_X + 6 * POINT_W + 2, BOARD_Y + ROW_H + 2, BAR_W - 4, ROW_H - 4);
+          continue;
+        }
+        const { row } = pointSlot(from);
+        const x = pointX(from);
+        const y = row === 'top' ? BOARD_Y + 2 : BOARD_Y + BOARD_H - 5;
+        ctx.fillStyle = '#ffd23f';
+        ctx.fillRect(x + 8, y, POINT_W - 16, 3);
+      }
       ctx.restore();
     }
   }
@@ -548,47 +774,58 @@ export default class Backgammon extends BaseGame {
       }
       if (n > MAX_STACK_SHOWN) {
         const y = startY + dir * (shown - 1) * (CHECKER_R * 1.7);
-        this.text(ctx, `${n}`, x, y, { size: 11, color: '#04060a', weight: 700 });
+        this.text(ctx, `${n}`, x, y, { size: 11, color: human ? '#0b1526' : '#e9edf6', weight: 700 });
       }
     }
   }
 
   #drawChecker(ctx, x, y, human) {
-    ctx.save();
-    ctx.shadowColor = human ? '#38bdf8' : '#fb7185';
-    ctx.shadowBlur = 6;
-    ctx.fillStyle = human ? '#e9edf6' : '#1f2937';
-    ctx.beginPath();
-    ctx.arc(x, y, CHECKER_R, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.shadowBlur = 0;
-    ctx.strokeStyle = human ? '#38bdf8' : '#fb7185';
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-    ctx.restore();
+    const sprite = this.checkerSprites[human ? 'human' : 'ai'];
+    ctx.drawImage(sprite.canvas, x - sprite.size / 2, y - sprite.size / 2, sprite.size, sprite.size);
   }
 
   #drawBar(ctx) {
     const cx = BOARD_X + 6 * POINT_W + BAR_W / 2;
-    for (let k = 0; k < this.bar.human; k++) {
+    const humanShown = Math.min(this.bar.human, 4);
+    for (let k = 0; k < humanShown; k++) {
       this.#drawChecker(ctx, cx, BOARD_Y + ROW_H + 24 + k * (CHECKER_R * 1.7), true);
     }
-    for (let k = 0; k < this.bar.ai; k++) {
+    if (this.bar.human > 4) {
+      this.text(ctx, `${this.bar.human}`, cx, BOARD_Y + ROW_H + 24 + 3 * (CHECKER_R * 1.7), { size: 11, color: '#0b1526', weight: 700 });
+    }
+    const aiShown = Math.min(this.bar.ai, 4);
+    for (let k = 0; k < aiShown; k++) {
       this.#drawChecker(ctx, cx, BOARD_Y + ROW_H - 24 - k * (CHECKER_R * 1.7), false);
+    }
+    if (this.bar.ai > 4) {
+      this.text(ctx, `${this.bar.ai}`, cx, BOARD_Y + ROW_H - 24 - 3 * (CHECKER_R * 1.7), { size: 11, color: '#e9edf6', weight: 700 });
     }
   }
 
   #drawOff(ctx) {
-    ctx.save();
-    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(OFF_X, BOARD_Y, OFF_W, ROW_H);
-    ctx.strokeRect(OFF_X, BOARD_Y + ROW_H, OFF_W, ROW_H);
-    ctx.restore();
+    // Borne-off checkers pile up as flat slabs, the way they do at the side
+    // of a real board.
+    const slab = (count, color, fromY, dir) => {
+      ctx.save();
+      const shown = Math.min(count, 15);
+      for (let k = 0; k < shown; k++) {
+        const y = fromY + dir * k * 8;
+        ctx.fillStyle = color;
+        ctx.globalAlpha = 0.85;
+        this.roundRect(ctx, OFF_X + 7, y, OFF_W - 14, 6, 3).fill();
+        ctx.globalAlpha = 0.35;
+        ctx.fillStyle = '#ffffff';
+        this.roundRect(ctx, OFF_X + 9, y + 1, OFF_W - 26, 2, 1).fill();
+      }
+      ctx.restore();
+    };
+    slab(this.off.ai, '#7d2f44', BOARD_Y + 40, 1);
+    slab(this.off.human, '#9db8dd', BOARD_Y + BOARD_H - 46, -1);
+
     this.text(ctx, `${this.off.ai}`, OFF_X + OFF_W / 2, BOARD_Y + 16, { size: 16, color: '#fb7185', weight: 700 });
-    this.text(ctx, 'OFF', OFF_X + OFF_W / 2, BOARD_Y + 34, { size: 8, color: '#5c6478' });
-    this.text(ctx, `${this.off.human}`, OFF_X + OFF_W / 2, BOARD_Y + BOARD_H - 32, { size: 16, color: '#38bdf8', weight: 700 });
-    this.text(ctx, 'OFF', OFF_X + OFF_W / 2, BOARD_Y + BOARD_H - 16, { size: 8, color: '#5c6478' });
+    this.text(ctx, 'OFF', OFF_X + OFF_W / 2, BOARD_Y + 30, { size: 8, color: '#5c6478' });
+    this.text(ctx, `${this.off.human}`, OFF_X + OFF_W / 2, BOARD_Y + BOARD_H - 16, { size: 16, color: '#38bdf8', weight: 700 });
+    this.text(ctx, 'OFF', OFF_X + OFF_W / 2, BOARD_Y + BOARD_H - 30, { size: 8, color: '#5c6478' });
   }
 
   #drawStatus(ctx) {
@@ -602,10 +839,13 @@ export default class Backgammon extends BaseGame {
       size: 11, color: this.turn === 'human' && this.result === null ? '#4ade80' : '#8b93a7', glow: 4,
     });
 
-    const dice = this.turn === 'human' ? this.remaining : this.dice;
-    dice.forEach((d, i) => {
-      const x = W / 2 - (dice.length * 26) / 2 + i * 26 + 13;
-      this.#drawDie(ctx, x, 46, d);
+    // The whole roll stays visible; spent dice fade rather than vanish.
+    const rem = this.remaining.slice();
+    this.dice.forEach((d, i) => {
+      const x = W / 2 - (this.dice.length * 26) / 2 + i * 26 + 13;
+      const j = rem.indexOf(d);
+      if (j >= 0) rem.splice(j, 1);
+      this.#drawDie(ctx, x, 46, d, j < 0);
     });
 
     if (this.message) {
@@ -613,10 +853,17 @@ export default class Backgammon extends BaseGame {
     }
   }
 
-  #drawDie(ctx, x, y, value) {
+  #drawDie(ctx, x, y, value, used = false) {
     ctx.save();
-    ctx.fillStyle = '#f4f7ff';
+    if (used) ctx.globalAlpha = 0.3;
+    const face = ctx.createLinearGradient(x - 10, y - 10, x + 10, y + 10);
+    face.addColorStop(0, '#ffffff');
+    face.addColorStop(1, '#c9d4ea');
+    ctx.fillStyle = face;
     this.roundRect(ctx, x - 10, y - 10, 20, 20, 4).fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+    ctx.lineWidth = 1;
+    this.roundRect(ctx, x - 10, y - 10, 20, 20, 4).stroke();
     ctx.fillStyle = '#141821';
     const pips = {
       1: [[0, 0]], 2: [[-5, -5], [5, 5]], 3: [[-5, -5], [0, 0], [5, 5]],

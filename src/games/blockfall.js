@@ -61,6 +61,10 @@ const KICKS_I = {
 const LINE_SCORES = [0, 100, 300, 500, 800];
 const LINE_NAMES = ['', 'Single', 'Double', 'Triple', 'BLOCKFALL!'];
 
+/** Cached sprites render at 2x so the scaled canvas stays crisp on phones. */
+const SPRITE_SCALE = 2;
+const SPRITE_PAD = 8;
+
 export default class Blockfall extends BaseGame {
   static id = 'blockfall';
   static width = BOARD_W + PANEL * 2 + 24;
@@ -79,6 +83,10 @@ export default class Blockfall extends BaseGame {
 
     this.boardX = PANEL + 16;
     this.boardY = 20;
+
+    this.sprites = {};
+    for (const type of TYPES) this.sprites[PIECES[type].color] = this.#makeBlockSprite(PIECES[type].color);
+    this.backdrop = this.#makeBackdrop();
 
     // The grid stores colours; null is empty. Two hidden rows sit on top.
     this.grid = Array.from({ length: ROWS + HIDDEN }, () => Array(COLS).fill(null));
@@ -245,13 +253,25 @@ export default class Blockfall extends BaseGame {
   }
 
   #lock() {
+    let visible = false;
     for (const [x, y] of this.#cellsOf(this.piece)) {
       if (y >= 0 && y < ROWS + HIDDEN) this.grid[y][x] = this.piece.color;
+      if (y < HIDDEN) continue;
+      visible = true;
       this.particles.emit(
         this.boardX + x * CELL + CELL / 2,
         this.boardY + (y - HIDDEN) * CELL + CELL / 2,
         { count: 2, speed: 40, color: this.piece.color, life: 0.25, size: 2 },
       );
+    }
+
+    // Lock out: the piece came to rest entirely above the visible field.
+    if (!visible) {
+      this.meta = { lines: this.lines, level: this.level };
+      this.play('die');
+      this.shake.add(12);
+      this.end();
+      return;
     }
 
     const full = [];
@@ -281,6 +301,14 @@ export default class Blockfall extends BaseGame {
     if (this.combo > 0) points += 50 * this.combo * this.level;
 
     this.addScore(points);
+    const top = Math.max(HIDDEN, Math.min(...this.clearing.rows));
+    this.popups.add(
+      this.boardX + BOARD_W / 2,
+      this.boardY + (top - HIDDEN) * CELL + CELL / 2,
+      `+${points}`,
+      isTetris ? '#ffd23f' : '#00e5ff',
+      isTetris ? 18 : 14,
+    );
     this.lines += count;
     this.host.setSecondary(this.lines);
     this.meta = { lines: this.lines, level: this.level };
@@ -411,7 +439,7 @@ export default class Blockfall extends BaseGame {
     ctx.save();
     this.shake.apply(ctx);
 
-    this.#drawWell(ctx);
+    ctx.drawImage(this.backdrop, 0, 0, this.width, this.height);
     this.#drawStack(ctx);
     if (!this.clearing && this.piece) {
       this.#drawGhost(ctx);
@@ -424,53 +452,111 @@ export default class Blockfall extends BaseGame {
     ctx.restore();
   }
 
-  #drawWell(ctx) {
-    ctx.save();
-    ctx.fillStyle = 'rgba(255,255,255,0.02)';
-    ctx.fillRect(this.boardX, this.boardY, BOARD_W, BOARD_H);
+  /** Every static pixel — background wash, well, panel boxes — baked once. */
+  #makeBackdrop() {
+    const s = SPRITE_SCALE;
+    const canvas = document.createElement('canvas');
+    canvas.width = this.width * s;
+    canvas.height = this.height * s;
+    const g = canvas.getContext('2d');
+    g.scale(s, s);
 
-    ctx.strokeStyle = 'rgba(255,255,255,0.05)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
+    const wash = g.createLinearGradient(0, 0, 0, this.height);
+    wash.addColorStop(0, '#04060a');
+    wash.addColorStop(0.5, '#070b16');
+    wash.addColorStop(1, '#04060a');
+    g.fillStyle = wash;
+    g.fillRect(0, 0, this.width, this.height);
+
+    // The well reads as a pit: lit at the rim, falling into shadow.
+    g.fillStyle = 'rgba(255,255,255,0.02)';
+    g.fillRect(this.boardX, this.boardY, BOARD_W, BOARD_H);
+    const pit = g.createLinearGradient(0, this.boardY, 0, this.boardY + BOARD_H);
+    pit.addColorStop(0, 'rgba(0,229,255,0.05)');
+    pit.addColorStop(0.35, 'rgba(255,255,255,0.01)');
+    pit.addColorStop(1, 'rgba(0,0,0,0.3)');
+    g.fillStyle = pit;
+    g.fillRect(this.boardX, this.boardY, BOARD_W, BOARD_H);
+
+    g.strokeStyle = 'rgba(255,255,255,0.05)';
+    g.lineWidth = 1;
+    g.beginPath();
     for (let x = 1; x < COLS; x++) {
-      ctx.moveTo(this.boardX + x * CELL, this.boardY);
-      ctx.lineTo(this.boardX + x * CELL, this.boardY + BOARD_H);
+      g.moveTo(this.boardX + x * CELL, this.boardY);
+      g.lineTo(this.boardX + x * CELL, this.boardY + BOARD_H);
     }
     for (let y = 1; y < ROWS; y++) {
-      ctx.moveTo(this.boardX, this.boardY + y * CELL);
-      ctx.lineTo(this.boardX + BOARD_W, this.boardY + y * CELL);
+      g.moveTo(this.boardX, this.boardY + y * CELL);
+      g.lineTo(this.boardX + BOARD_W, this.boardY + y * CELL);
     }
-    ctx.stroke();
+    g.stroke();
 
-    ctx.strokeStyle = 'rgba(0,229,255,0.35)';
-    ctx.shadowColor = '#00e5ff';
-    ctx.shadowBlur = 12;
-    ctx.lineWidth = 2;
-    ctx.strokeRect(this.boardX - 1, this.boardY - 1, BOARD_W + 2, BOARD_H + 2);
-    ctx.restore();
+    g.strokeStyle = 'rgba(0,229,255,0.35)';
+    g.shadowColor = '#00e5ff';
+    g.shadowBlur = 12;
+    g.lineWidth = 2;
+    g.strokeRect(this.boardX - 1, this.boardY - 1, BOARD_W + 2, BOARD_H + 2);
+    g.shadowBlur = 0;
+
+    this.#panelBox(g, 12, this.boardY, 42 + 54, 'HOLD');
+    this.#panelBox(g, this.boardX + BOARD_W + 16, this.boardY, 42 + 3 * 54, 'NEXT');
+    return canvas;
+  }
+
+  #panelBox(g, x, y, height, label) {
+    const grad = g.createLinearGradient(0, y, 0, y + height);
+    grad.addColorStop(0, 'rgba(255,255,255,0.05)');
+    grad.addColorStop(1, 'rgba(255,255,255,0.015)');
+    g.fillStyle = grad;
+    this.roundRect(g, x, y, PANEL, height, 8).fill();
+    g.strokeStyle = 'rgba(255,255,255,0.1)';
+    g.lineWidth = 1;
+    this.roundRect(g, x + 0.5, y + 0.5, PANEL - 1, height - 1, 8).stroke();
+    this.text(g, label, x + PANEL / 2, y + 16, { size: 10, color: '#8b93a7' });
+  }
+
+  /** One block, bevelled and glowing, baked so draw() never touches shadowBlur. */
+  #makeBlockSprite(color) {
+    const s = SPRITE_SCALE;
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = (CELL + SPRITE_PAD * 2) * s;
+    const g = canvas.getContext('2d');
+    g.scale(s, s);
+
+    g.shadowColor = color;
+    g.shadowBlur = 9;
+    g.fillStyle = color;
+    this.roundRect(g, SPRITE_PAD + 1, SPRITE_PAD + 1, CELL - 2, CELL - 2, 5).fill();
+    g.shadowBlur = 0;
+
+    const bevel = g.createLinearGradient(0, SPRITE_PAD, 0, SPRITE_PAD + CELL);
+    bevel.addColorStop(0, 'rgba(255,255,255,0.42)');
+    bevel.addColorStop(0.42, 'rgba(255,255,255,0.06)');
+    bevel.addColorStop(1, 'rgba(0,0,0,0.3)');
+    g.fillStyle = bevel;
+    this.roundRect(g, SPRITE_PAD + 1, SPRITE_PAD + 1, CELL - 2, CELL - 2, 5).fill();
+
+    g.strokeStyle = 'rgba(255,255,255,0.3)';
+    g.lineWidth = 1;
+    this.roundRect(g, SPRITE_PAD + 2, SPRITE_PAD + 2, CELL - 4, CELL - 4, 4).stroke();
+    return canvas;
   }
 
   #block(ctx, px, py, color, { alpha = 1, ghost = false } = {}) {
-    ctx.save();
-    ctx.globalAlpha = alpha;
     if (ghost) {
+      ctx.save();
       ctx.strokeStyle = color;
       ctx.lineWidth = 1.5;
       ctx.globalAlpha = alpha * 0.4;
       ctx.strokeRect(px + 2.5, py + 2.5, CELL - 5, CELL - 5);
-    } else {
-      ctx.shadowColor = color;
-      ctx.shadowBlur = 10;
-      ctx.fillStyle = color;
-      ctx.fillRect(px + 1, py + 1, CELL - 2, CELL - 2);
-      // A lighter inner face gives the block a little depth.
-      ctx.shadowBlur = 0;
-      ctx.globalAlpha = alpha * 0.32;
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(px + 3, py + 3, CELL - 6, 3);
-      ctx.fillRect(px + 3, py + 3, 3, CELL - 6);
+      ctx.restore();
+      return;
     }
-    ctx.restore();
+    ctx.drawImage(
+      this.sprites[color],
+      px - SPRITE_PAD, py - SPRITE_PAD,
+      CELL + SPRITE_PAD * 2, CELL + SPRITE_PAD * 2,
+    );
   }
 
   #drawStack(ctx) {
@@ -526,8 +612,10 @@ export default class Blockfall extends BaseGame {
   /* --- hold and next --- */
 
   #drawPanels(ctx) {
-    this.#panel(ctx, 12, this.boardY, 'HOLD', this.hold ? [this.hold] : []);
-    this.#panel(ctx, this.boardX + BOARD_W + 16, this.boardY, 'NEXT', this.queue);
+    if (this.hold) this.#drawMini(ctx, this.hold, 12 + PANEL / 2, this.boardY + 56);
+    this.queue.forEach((type, i) => {
+      this.#drawMini(ctx, type, this.boardX + BOARD_W + 16 + PANEL / 2, this.boardY + 56 + i * 54);
+    });
 
     // Level and combo readouts under the hold box.
     const x = 12 + PANEL / 2;
@@ -545,24 +633,6 @@ export default class Blockfall extends BaseGame {
     }
   }
 
-  #panel(ctx, x, y, label, types) {
-    const height = 42 + Math.max(1, types.length) * 54;
-
-    ctx.save();
-    ctx.fillStyle = 'rgba(255,255,255,0.025)';
-    ctx.fillRect(x, y, PANEL, height);
-    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(x + 0.5, y + 0.5, PANEL - 1, height - 1);
-    ctx.restore();
-
-    this.text(ctx, label, x + PANEL / 2, y + 16, { size: 10, color: '#8b93a7' });
-
-    types.forEach((type, i) => {
-      this.#drawMini(ctx, type, x + PANEL / 2, y + 56 + i * 54);
-    });
-  }
-
   /** A piece drawn small and centred, for the hold and next boxes. */
   #drawMini(ctx, type, cx, cy) {
     const def = PIECES[type];
@@ -574,13 +644,10 @@ export default class Blockfall extends BaseGame {
     const ox = cx - w / 2 - Math.min(...xs) * size;
     const oy = cy - h / 2 - Math.min(...ys) * size;
 
-    ctx.save();
-    ctx.shadowColor = def.color;
-    ctx.shadowBlur = 8;
-    ctx.fillStyle = def.color;
+    const sprite = this.sprites[def.color];
+    const pad = SPRITE_PAD * (size / CELL);
     for (const [x, y] of def.cells) {
-      ctx.fillRect(ox + x * size + 1, oy + y * size + 1, size - 2, size - 2);
+      ctx.drawImage(sprite, ox + x * size - pad, oy + y * size - pad, size + pad * 2, size + pad * 2);
     }
-    ctx.restore();
   }
 }

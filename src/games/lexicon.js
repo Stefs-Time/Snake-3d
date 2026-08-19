@@ -84,6 +84,8 @@ export default class Lexicon extends BaseGame {
     this.typeCol = -1;
     this.winRow = -1;
     this.winT = 0;
+    // The keyboard never moves, so its geometry is computed exactly once.
+    this.keys = KEY_ROWS.map((_, r) => this.#rowLayout(r));
     // Draw answers without repeats until the pool runs dry.
     this.pool = [...ANSWERS];
     this.#newWord();
@@ -337,8 +339,8 @@ export default class Lexicon extends BaseGame {
   }
 
   #keyAt(px, py) {
-    for (let r = 0; r < KEY_ROWS.length; r++) {
-      for (const key of this.#rowLayout(r)) {
+    for (const row of this.keys) {
+      for (const key of row) {
         if (this.hits(px, py, key.x, key.y, key.w, key.h)) return key.label;
       }
     }
@@ -468,7 +470,7 @@ export default class Lexicon extends BaseGame {
   #drawBoard(ctx) {
     for (let row = 0; row < ROWS; row++) {
       const guess = this.guesses[row];
-      const isCurrent = row === this.guesses.length && !this.flip;
+      const isCurrent = row === this.guesses.length && !this.flip && !this.roundOver;
       const wobble =
         isCurrent && this.shakeRow > 0 ? Math.sin(this.shakeRow * 60) * this.shakeRow * 18 : 0;
       const isWinRow = row === this.winRow && this.winT > 0;
@@ -530,8 +532,8 @@ export default class Lexicon extends BaseGame {
   }
 
   #drawKeyboard(ctx) {
-    for (let r = 0; r < KEY_ROWS.length; r++) {
-      for (const key of this.#rowLayout(r)) {
+    for (const row of this.keys) {
+      for (const key of row) {
         const state = this.keyState[key.label];
         const wide = key.label.length > 1;
         const pressed = this.keyFlashT > 0 && this.keyFlash === key.label;
