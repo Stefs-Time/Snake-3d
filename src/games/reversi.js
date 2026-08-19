@@ -79,6 +79,8 @@ export default class Reversi extends BaseGame {
     this.setLives(3);
 
     this.gameNo = 1;
+    this.#buildBoardLayer();
+    this.#buildSprites();
     this.#applyLevel(this.option('level'));
     this.#newGame();
     this.banner('Reversi');
@@ -103,11 +105,12 @@ export default class Reversi extends BaseGame {
     this.cells[28] = this.cells[35] = AI;
 
     this.turn = HUMAN;
-    this.flipping = []; // { index, t } — discs mid-turn
+    this.flipping = []; // { index, t, from, place } — discs mid-turn
     this.result = null;
     this.settleTimer = 0;
     this.aiTimer = 0;
     this.passed = 0;
+    this.lastIndex = -1;
     this.host.setSecondary(this.gameNo);
     this.#refreshMoves();
   }
@@ -304,6 +307,9 @@ export default class Reversi extends BaseGame {
       this.addScore(600 + (human - ai) * 60 + this.depth * 200);
       this.banner(`You win ${human}-${ai}`);
       this.play('highscore');
+      this.particles.emit(BOARD_X + BOARD / 2, BOARD_Y + BOARD / 2, {
+        count: 40, speed: 250, color: '#38bdf8', life: 0.9, size: 3, shape: 'circle',
+      });
     } else if (this.result === AI) {
       this.banner(`Lost ${ai}-${human}`);
       this.play('die');
@@ -382,53 +388,162 @@ export default class Reversi extends BaseGame {
     ctx.restore();
   }
 
-  #drawBoard(ctx) {
-    ctx.save();
-    ctx.fillStyle = '#0c2b1e';
-    this.roundRect(ctx, BOARD_X - 8, BOARD_Y - 8, BOARD + 16, BOARD + 16, 10).fill();
-    ctx.strokeStyle = 'rgba(74,222,128,0.3)';
-    ctx.lineWidth = 1.5;
-    this.roundRect(ctx, BOARD_X - 8, BOARD_Y - 8, BOARD + 16, BOARD + 16, 10).stroke();
+  /** The felt never changes, so it is painted once and blitted per frame. */
+  #buildBoardLayer() {
+    const scale = 2;
+    const layer = document.createElement('canvas');
+    layer.width = W * scale;
+    layer.height = H * scale;
+    const c = layer.getContext('2d');
+    c.scale(scale, scale);
 
-    ctx.strokeStyle = 'rgba(0,0,0,0.45)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
+    const rim = c.createLinearGradient(0, BOARD_Y - 8, 0, BOARD_Y + BOARD + 8);
+    rim.addColorStop(0, '#123726');
+    rim.addColorStop(1, '#081f14');
+    c.fillStyle = rim;
+    this.roundRect(c, BOARD_X - 8, BOARD_Y - 8, BOARD + 16, BOARD + 16, 10).fill();
+    c.strokeStyle = 'rgba(74,222,128,0.3)';
+    c.lineWidth = 1.5;
+    this.roundRect(c, BOARD_X - 8, BOARD_Y - 8, BOARD + 16, BOARD + 16, 10).stroke();
+
+    // The felt itself, lit from the top-left the way the discs are.
+    const felt = c.createRadialGradient(
+      BOARD_X + BOARD * 0.35, BOARD_Y + BOARD * 0.3, BOARD * 0.1,
+      BOARD_X + BOARD / 2, BOARD_Y + BOARD / 2, BOARD * 0.85,
+    );
+    felt.addColorStop(0, '#0e3323');
+    felt.addColorStop(1, '#092117');
+    c.fillStyle = felt;
+    c.fillRect(BOARD_X, BOARD_Y, BOARD, BOARD);
+
+    c.strokeStyle = 'rgba(0,0,0,0.45)';
+    c.lineWidth = 1;
+    c.beginPath();
     for (let i = 1; i < N; i++) {
-      ctx.moveTo(BOARD_X + i * CELL, BOARD_Y);
-      ctx.lineTo(BOARD_X + i * CELL, BOARD_Y + BOARD);
-      ctx.moveTo(BOARD_X, BOARD_Y + i * CELL);
-      ctx.lineTo(BOARD_X + BOARD, BOARD_Y + i * CELL);
+      c.moveTo(BOARD_X + i * CELL, BOARD_Y);
+      c.lineTo(BOARD_X + i * CELL, BOARD_Y + BOARD);
+      c.moveTo(BOARD_X, BOARD_Y + i * CELL);
+      c.lineTo(BOARD_X + BOARD, BOARD_Y + i * CELL);
     }
-    ctx.stroke();
-    ctx.restore();
+    c.stroke();
+
+    // Star points, as on a go board — they mark the corner-adjacent danger zone.
+    c.fillStyle = 'rgba(74,222,128,0.35)';
+    for (const [sr, sc] of [[2, 2], [2, 6], [6, 2], [6, 6]]) {
+      c.beginPath();
+      c.arc(BOARD_X + sc * CELL, BOARD_Y + sr * CELL, 2.5, 0, Math.PI * 2);
+      c.fill();
+    }
+
+    c.font = '600 9px ui-monospace, monospace';
+    c.fillStyle = 'rgba(134,239,172,0.35)';
+    c.textAlign = 'center';
+    c.textBaseline = 'middle';
+    for (let i = 0; i < N; i++) {
+      c.fillText(String.fromCharCode(97 + i), BOARD_X + i * CELL + CELL / 2, BOARD_Y + BOARD + 13);
+      c.fillText(String(i + 1), BOARD_X - 13, BOARD_Y + i * CELL + CELL / 2);
+    }
+
+    this.boardLayer = layer;
+  }
+
+  #buildSprites() {
+    const make = (human) => {
+      const scale = 3;
+      const cnv = document.createElement('canvas');
+      cnv.width = cnv.height = CELL * scale;
+      const c = cnv.getContext('2d');
+      c.scale(scale, scale);
+      const cx = CELL / 2;
+      const cy = CELL / 2;
+      const r = CELL * 0.38;
+      const rim = human ? '#38bdf8' : '#fb7185';
+
+      c.fillStyle = 'rgba(0,0,0,0.45)';
+      c.beginPath();
+      c.ellipse(cx, cy + r * 0.12, r * 1.0, r * 0.9, 0, 0, Math.PI * 2);
+      c.fill();
+
+      const body = c.createRadialGradient(cx - r * 0.35, cy - r * 0.42, r * 0.15, cx, cy, r * 1.05);
+      if (human) {
+        body.addColorStop(0, '#ffffff');
+        body.addColorStop(0.55, '#dde6f5');
+        body.addColorStop(1, '#93a8cc');
+      } else {
+        body.addColorStop(0, '#46536b');
+        body.addColorStop(0.55, '#27324a');
+        body.addColorStop(1, '#111726');
+      }
+      c.save();
+      c.shadowColor = rim;
+      c.shadowBlur = 7;
+      c.fillStyle = body;
+      c.beginPath();
+      c.arc(cx, cy, r, 0, Math.PI * 2);
+      c.fill();
+      c.restore();
+
+      c.strokeStyle = rim;
+      c.lineWidth = 2;
+      c.beginPath();
+      c.arc(cx, cy, r, 0, Math.PI * 2);
+      c.stroke();
+
+      const dome = c.createRadialGradient(cx - r * 0.3, cy - r * 0.42, 0, cx - r * 0.3, cy - r * 0.42, r * 0.8);
+      dome.addColorStop(0, human ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.25)');
+      dome.addColorStop(1, 'rgba(255,255,255,0)');
+      c.fillStyle = dome;
+      c.beginPath();
+      c.arc(cx, cy, r, 0, Math.PI * 2);
+      c.fill();
+
+      return cnv;
+    };
+    this.discSprites = { [HUMAN]: make(true), [AI]: make(false) };
+  }
+
+  #drawBoard(ctx) {
+    ctx.drawImage(this.boardLayer, 0, 0, W, H);
   }
 
   #drawDiscs(ctx) {
     for (let i = 0; i < N * N; i++) {
       const player = this.cells[i];
       if (!player) continue;
-      const x = BOARD_X + (i % N) * CELL + CELL / 2;
-      const y = BOARD_Y + ((i / N) | 0) * CELL + CELL / 2;
+      const x = BOARD_X + (i % N) * CELL;
+      const y = BOARD_Y + ((i / N) | 0) * CELL;
+
+      const flip = this.flipping.find((f) => f.index === i);
+      if (!flip) {
+        ctx.drawImage(this.discSprites[player], x, y, CELL, CELL);
+        continue;
+      }
+
+      if (flip.place) {
+        // The new disc pops in.
+        const t = Math.min(1, Math.max(0, flip.t) / 0.2);
+        const s = CELL * (0.5 + 0.5 * (1 - (1 - t) ** 3));
+        ctx.drawImage(this.discSprites[player], x + (CELL - s) / 2, y + (CELL - s) / 2, s, s);
+        continue;
+      }
 
       // A flip is a horizontal squash; the colour changes at the midpoint.
-      const flip = this.flipping.find((f) => f.index === i);
-      const t = flip ? Math.min(1, flip.t / 0.26) : 1;
-      const squash = flip ? Math.abs(Math.cos(t * Math.PI)) : 1;
-      const color = player === HUMAN ? '#e9edf6' : '#1f2937';
-      const rim = player === HUMAN ? '#38bdf8' : '#fb7185';
+      const t = Math.min(1, Math.max(0, flip.t) / 0.26);
+      const squash = Math.max(0.06, Math.abs(Math.cos(t * Math.PI)));
+      const face = t < 0.5 ? flip.from : player;
+      const w = CELL * squash;
+      ctx.drawImage(this.discSprites[face], x + (CELL - w) / 2, y, w, CELL);
+    }
 
+    if (this.lastIndex >= 0 && this.cells[this.lastIndex]) {
+      const x = BOARD_X + (this.lastIndex % N) * CELL + CELL / 2;
+      const y = BOARD_Y + ((this.lastIndex / N) | 0) * CELL + CELL / 2;
       ctx.save();
-      ctx.translate(x, y);
-      ctx.scale(Math.max(0.06, squash), 1);
-      ctx.shadowColor = rim;
-      ctx.shadowBlur = 10;
-      ctx.fillStyle = color;
+      ctx.strokeStyle = '#ffd23f';
+      ctx.globalAlpha = 0.8;
+      ctx.lineWidth = 1.5;
       ctx.beginPath();
-      ctx.arc(0, 0, CELL * 0.38, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.shadowBlur = 0;
-      ctx.strokeStyle = rim;
-      ctx.lineWidth = 2;
+      ctx.arc(x, y, 4, 0, Math.PI * 2);
       ctx.stroke();
       ctx.restore();
     }
@@ -461,17 +576,25 @@ export default class Reversi extends BaseGame {
 
     this.text(ctx, 'DISCS', cx, BOARD_Y + 6, { size: 10, color: '#5c6478' });
 
-    const bar = (y, label, count, color, active) => {
+    const bar = (y, label, count, player, active) => {
       ctx.save();
       ctx.globalAlpha = active ? 1 : 0.55;
-      this.glowCircle(ctx, PANEL_X + 16, y, 13, color, active ? 14 : 4);
+      if (active) {
+        ctx.strokeStyle = player === HUMAN ? '#38bdf8' : '#fb7185';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(PANEL_X + 16, y, 18, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      const s = 36;
+      ctx.drawImage(this.discSprites[player], PANEL_X + 16 - s / 2, y - s / 2, s, s);
       ctx.restore();
       this.text(ctx, String(count), PANEL_X + 44, y, { size: 24, color: '#e9edf6', align: 'left' });
       this.text(ctx, label, PANEL_X + 150, y, { size: 10, color: '#5c6478', align: 'right' });
     };
 
-    bar(BOARD_Y + 46, 'YOU', human, '#e9edf6', this.turn === HUMAN && this.result === null);
-    bar(BOARD_Y + 92, 'CPU', ai, '#1f2937', this.turn === AI && this.result === null);
+    bar(BOARD_Y + 46, 'YOU', human, HUMAN, this.turn === HUMAN && this.result === null);
+    bar(BOARD_Y + 92, 'CPU', ai, AI, this.turn === AI && this.result === null);
 
     // Proportion bar — the shape of the game at a glance.
     const total = Math.max(1, human + ai);

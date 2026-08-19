@@ -35,6 +35,12 @@ const COL_COLORS = ['#fb7185', '#fbbf24', '#4ade80', '#38bdf8', '#c084fc'];
 const CALL_START = 3.4;
 const CALL_MIN = 1.5;
 
+/** How long a fresh daub takes to squash into place. */
+const DAUB_POP = 0.22;
+
+/** How long a completed line's strike takes to sweep across. */
+const LINE_SWEEP = 0.4;
+
 export default class Bingo extends BaseGame {
   static id = 'bingo';
   static width = W;
@@ -53,9 +59,17 @@ export default class Bingo extends BaseGame {
     this.round = 1;
     this.totalLines = 0;
     this.breakTimer = 0;
+    // Card chrome and daub stamps are baked into layers, not painted per frame.
+    this.layers = new Map();
+    this.cardLayers = [null, null];
     this.#startRound();
     this.banner('Eyes down');
     this.play('ready');
+  }
+
+  resize() {
+    this.layers?.clear();
+    this.cardLayers = [null, null];
   }
 
   #startRound() {
@@ -74,6 +88,7 @@ export default class Bingo extends BaseGame {
     this.callTimer = 2.2;
     this.callInterval = CALL_START;
     this.roundLines = 0;
+    this.cardLayers = [null, null];
     this.host.setSecondary(this.totalLines);
   }
 
@@ -88,10 +103,11 @@ export default class Bingo extends BaseGame {
       }
       for (let row = 0; row < CARD_ROWS; row++) {
         const free = col === 2 && row === 2;
-        cells.push({ col, row, value: free ? 0 : pool[row], daubed: free, free });
+        cells.push({ col, row, value: free ? 0 : pool[row], daubed: free, free, pop: 0 });
       }
     }
-    return { cells, lines: new Set() };
+    // key -> strike sweep progress, so a fresh line animates in.
+    return { cells, lines: new Map() };
   }
 
   /* =============================================================== calling */
@@ -118,15 +134,18 @@ export default class Bingo extends BaseGame {
   /* =============================================================== daubing */
 
   #daub(card, cell) {
-    if (cell.daubed || !this.called.has(cell.value)) {
+    // Tapping a mark you already made is a slip, not a foul.
+    if (cell.daubed) return;
+    if (!this.called.has(cell.value)) {
       // Daubing a number that has not been called is a penalty.
-      this.addScore(-25);
+      this.addScore(-Math.min(25, this.score));
       this.play('hit');
       this.shake.add(4);
       return;
     }
 
     cell.daubed = true;
+    cell.pop = 1;
     // Fresh calls are worth much more than ones you nearly let slip.
     const freshness = this.recent.indexOf(cell.value);
     const points = freshness === 0 ? 100 : freshness > 0 ? Math.max(30, 90 - freshness * 12) : 20;

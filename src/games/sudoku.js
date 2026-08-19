@@ -484,7 +484,7 @@ export default class Sudoku extends BaseGame {
         this.roundRect(g, x + 0.5, y + 0.5, w - 1, h - 1, 12).stroke();
       };
       well(BOARD_X - 12, BOARD_Y - 14, BOARD + 24, BOARD + 28);
-      well(PAD_X - 12, BOARD_Y - 14, PAD_W + 24, BOARD + 28);
+      well(PAD_X - 10, BOARD_Y - 14, PAD_W + 16, BOARD + 28);
 
       g.strokeStyle = 'rgba(255,255,255,0.10)';
       g.lineWidth = 1;

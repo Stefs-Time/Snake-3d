@@ -357,7 +357,7 @@ export default class Minefield extends BaseGame {
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(GRID_X - 8, GRID_Y - 14);
-    ctx.lineTo(W - GRID_X + 8, GRID_Y - 14);
+    ctx.lineTo(W - 126, GRID_Y - 14);
     ctx.stroke();
     ctx.restore();
 

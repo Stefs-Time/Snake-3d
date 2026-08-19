@@ -198,6 +198,7 @@ export default class Blackjack extends BaseGame {
 
     if (dealerNatural || playerNatural) {
       this.dealerHoleHidden = false;
+      this.holeFlip = 0;
       const hand = this.hands[0];
       if (playerNatural && dealerNatural) {
         hand.result = 'push';
@@ -205,7 +206,11 @@ export default class Blackjack extends BaseGame {
       } else if (playerNatural) {
         hand.result = 'blackjack';
         this.chips += Math.round(hand.bet * 2.5);
-        this.#award(Math.round(hand.bet * 1.5));
+        const won = Math.round(hand.bet * 1.5);
+        this.#award(won, { x: W / 2, y: PLAYER_Y - 10, color: '#ffd23f', label: `+$${won}` });
+        this.particles.emit(W / 2, PLAYER_Y + CARD_H / 2, {
+          count: 22, speed: 150, color: '#ffd23f', life: 0.6, size: 2.6, shape: 'circle',
+        });
       } else {
         hand.result = 'lose';
       }
@@ -222,8 +227,8 @@ export default class Blackjack extends BaseGame {
     this.play('select');
   }
 
-  #award(points) {
-    if (points > 0) this.addScore(points);
+  #award(points, at) {
+    if (points > 0) this.addScore(points, at);
   }
 
   /* ============================================================== actions */
@@ -324,11 +329,13 @@ export default class Blackjack extends BaseGame {
     // No point drawing a card the table will never see: every hand busted.
     if (this.hands.every((h) => h.result === 'bust')) {
       this.dealerHoleHidden = false;
+      this.holeFlip = 0;
       this.#settle();
       return;
     }
     this.phase = 'dealer';
     this.dealerHoleHidden = false;
+    this.holeFlip = 0;
     this.dealerTimer = 0.7;
   }
 
@@ -348,24 +355,32 @@ export default class Blackjack extends BaseGame {
     const dealer = handValue(this.dealerHand);
     const dealerBust = dealer.total > 21;
 
-    for (const hand of this.hands) {
-      if (hand.result) continue; // already resolved (bust, or a natural)
+    const n = this.hands.length;
+    this.hands.forEach((hand, i) => {
+      if (hand.result) return; // already resolved (bust, or a natural)
       const total = handValue(hand.cards).total;
+      const cx = n === 1 ? W / 2 : W * (i === 0 ? 0.3 : 0.7);
       if (dealerBust || total > dealer.total) {
         hand.result = 'win';
         this.chips += hand.bet * 2;
-        this.#award(hand.bet);
+        this.#award(hand.bet, { x: cx, y: PLAYER_Y - 10, color: '#4ade80', label: `+$${hand.bet}` });
+        this.particles.emit(cx, PLAYER_Y + CARD_H / 2, {
+          count: 14, speed: 130, color: '#39ff88', life: 0.55, size: 2.6, shape: 'circle',
+        });
       } else if (total === dealer.total) {
         hand.result = 'push';
         this.chips += hand.bet;
       } else {
         hand.result = 'lose';
       }
-    }
+    });
 
     this.host.setSecondary(this.chips);
     const wins = this.hands.filter((h) => h.result === 'win' || h.result === 'blackjack').length;
-    this.message = dealerBust ? 'Dealer busts!' : wins === this.hands.length ? 'You win!' : wins > 0 ? 'Split result' : 'Dealer wins';
+    const allBust = this.hands.every((h) => h.result === 'bust');
+    this.message = allBust ? 'Bust'
+      : dealerBust ? 'Dealer busts!'
+      : wins === this.hands.length ? 'You win!' : wins > 0 ? 'Split result' : 'Dealer wins';
     this.play(wins > 0 ? 'highscore' : dealerBust ? 'highscore' : 'die');
     this.meta = { round: this.roundNo, chips: this.chips };
     this.phase = 'settle';
@@ -373,7 +388,8 @@ export default class Blackjack extends BaseGame {
   }
 
   #nextRound() {
-    if (this.chips <= 0) {
+    // Below the smallest chip there is no legal bet left to place.
+    if (this.chips < CHIP_VALUES[0]) {
       this.setLives(0);
       this.end();
       return;
@@ -388,6 +404,15 @@ export default class Blackjack extends BaseGame {
 
   update(dt) {
     this.updateEffects(dt);
+    for (const c of this.dealerHand) {
+      if (c.t < 1) c.t = Math.min(1, c.t + dt / 0.26);
+    }
+    for (const hand of this.hands) {
+      for (const c of hand.cards) {
+        if (c.t < 1) c.t = Math.min(1, c.t + dt / 0.26);
+      }
+    }
+    if (this.holeFlip < 1) this.holeFlip = Math.min(1, this.holeFlip + dt / 0.3);
     if (this.over) return;
 
     if (this.phase === 'dealer') {
@@ -466,8 +491,22 @@ export default class Blackjack extends BaseGame {
       ctx.save();
       const on = btn.enabled;
       if (btn.kind === 'chip') {
-        this.glowCircle(ctx, btn.x + btn.w / 2, btn.y + btn.h / 2, 22, on ? CHIP_COLORS[btn.value] : '#2a3142', on ? 10 : 0);
-        this.text(ctx, btn.label, btn.x + btn.w / 2, btn.y + btn.h / 2, {
+        const cx = btn.x + btn.w / 2;
+        const cy = btn.y + btn.h / 2;
+        this.glowCircle(ctx, cx, cy, 22, on ? CHIP_COLORS[btn.value] : '#2a3142', on ? 10 : 0);
+        // The dashed edge spots that make a chip read as a chip.
+        ctx.strokeStyle = 'rgba(4,6,10,0.5)';
+        ctx.lineWidth = 3;
+        ctx.setLineDash([5, 6.5]);
+        ctx.beginPath();
+        ctx.arc(cx, cy, 18.5, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(cx, cy, 14, 0, Math.PI * 2);
+        ctx.stroke();
+        this.text(ctx, btn.label, cx, cy, {
           size: 11, color: on ? '#04060a' : '#5c6478', weight: 700,
         });
       } else {
@@ -487,12 +526,7 @@ export default class Blackjack extends BaseGame {
   /* ================================================================= draw */
 
   draw(ctx) {
-    this.clear(ctx, '#08110d');
-    const grad = ctx.createRadialGradient(W / 2, H * 0.3, 40, W / 2, H * 0.5, W * 0.75);
-    grad.addColorStop(0, 'rgba(74, 222, 128, 0.09)');
-    grad.addColorStop(1, 'rgba(4, 12, 8, 0)');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, W, H);
+    ctx.drawImage(this.#felt(), 0, 0, W, H);
 
     ctx.save();
     this.shake.apply(ctx);
@@ -510,7 +544,7 @@ export default class Blackjack extends BaseGame {
     cards.forEach((card, i) => {
       const cx = x + i * OVERLAP;
       const hidden = hideLast && i === cards.length - 1;
-      this.#drawCard(ctx, cx, y, hidden ? null : card);
+      this.#drawCard(ctx, cx, y, hidden ? null : card, { t: card.t ?? 1 });
     });
   }
 
@@ -523,7 +557,11 @@ export default class Blackjack extends BaseGame {
     const width = this.#handWidth(this.dealerHand.length);
     const x = W / 2 - width / 2;
     this.text(ctx, 'DEALER', W / 2, DEALER_Y - 18, { size: 10, color: '#5c6478' });
-    this.#drawHand(ctx, this.dealerHand, x, DEALER_Y, this.dealerHoleHidden);
+    this.dealerHand.forEach((card, i) => {
+      const hidden = this.dealerHoleHidden && i === 1;
+      const flip = !this.dealerHoleHidden && i === 1 ? this.holeFlip : 1;
+      this.#drawCard(ctx, x + i * OVERLAP, DEALER_Y, hidden ? null : card, { t: card.t ?? 1, flip });
+    });
     if (!this.dealerHoleHidden && this.dealerHand.length) {
       this.text(ctx, String(total), W / 2, DEALER_Y + CARD_H + 8, { size: 13, color: '#e9edf6', weight: 700 });
     }
@@ -576,40 +614,206 @@ export default class Blackjack extends BaseGame {
     this.text(ctx, label, W / 2, BAR_Y - 18, { size: 11, color: '#8b93a7' });
   }
 
-  /** `card` of null draws a face-down back. */
-  #drawCard(ctx, x, y, card) {
+  /** `card` of null draws a face-down back. `t` slides it in, `flip` turns it. */
+  #drawCard(ctx, x, y, card, { t = 1, flip = 1 } = {}) {
+    const e = 1 - (1 - t) ** 3;
+    const yy = y - (1 - e) * 26;
     ctx.save();
-    if (!card) {
-      ctx.fillStyle = '#161d33';
-      this.roundRect(ctx, x, y, CARD_W, CARD_H, 7).fill();
-      ctx.strokeStyle = 'rgba(0,229,255,0.30)';
-      ctx.lineWidth = 1.4;
-      this.roundRect(ctx, x + 0.7, y + 0.7, CARD_W - 1.4, CARD_H - 1.4, 6).stroke();
-      ctx.restore();
-      return;
+    ctx.globalAlpha = Math.min(1, t * 2.5);
+    if (flip < 1) {
+      const w = Math.max(2, CARD_W * Math.abs(Math.cos(flip * Math.PI)));
+      const sprite = this.#cardSprite(flip > 0.5 ? card : null);
+      ctx.drawImage(sprite, x + (CARD_W - w) / 2 - PAD, yy - PAD, w + PAD * 2, CARD_H + PAD * 2);
+    } else {
+      ctx.drawImage(this.#cardSprite(card), x - PAD, yy - PAD, CARD_W + PAD * 2, CARD_H + PAD * 2);
+    }
+    ctx.restore();
+  }
+
+  /* ============================================================= sprites */
+
+  /** Fetch-or-paint an offscreen layer, rendered once at device resolution. */
+  #layer(key, w, h, paint) {
+    let c = this.layers.get(key);
+    if (c) return c;
+    const dpr = Math.min(2, this.host.dpr || 1);
+    c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(w * dpr));
+    c.height = Math.max(1, Math.round(h * dpr));
+    const g = c.getContext('2d');
+    g.scale(dpr, dpr);
+    paint(g);
+    this.layers.set(key, c);
+    return c;
+  }
+
+  /** The table, painted once: green wash, corner vignette, faint weave. */
+  #felt() {
+    return this.#layer('felt', W, H, (g) => {
+      g.fillStyle = '#07110c';
+      g.fillRect(0, 0, W, H);
+      const glow = g.createRadialGradient(W / 2, H * 0.3, 40, W / 2, H * 0.5, W * 0.75);
+      glow.addColorStop(0, 'rgba(74,222,128,0.11)');
+      glow.addColorStop(1, 'rgba(4,12,8,0)');
+      g.fillStyle = glow;
+      g.fillRect(0, 0, W, H);
+      const vig = g.createRadialGradient(W / 2, H / 2, H * 0.45, W / 2, H / 2, W * 0.75);
+      vig.addColorStop(0, 'rgba(0,0,0,0)');
+      vig.addColorStop(1, 'rgba(0,0,0,0.4)');
+      g.fillStyle = vig;
+      g.fillRect(0, 0, W, H);
+      // The dealer's arc, the one line every blackjack table has.
+      g.strokeStyle = 'rgba(74,222,128,0.14)';
+      g.lineWidth = 1.5;
+      g.beginPath();
+      g.arc(W / 2, DEALER_Y - 130, 320, Math.PI * 0.22, Math.PI * 0.78);
+      g.stroke();
+      g.fillStyle = 'rgba(255,255,255,0.02)';
+      for (let y = 8; y < H; y += 16) {
+        for (let x = 8; x < W; x += 16) g.fillRect(x, y, 1, 1);
+      }
+    });
+  }
+
+  #cardSprite(card) {
+    const key = card ? `card:${card.rank}${card.suit}` : 'back';
+    return this.#layer(key, CARD_W + PAD * 2, CARD_H + PAD * 2, (g) => {
+      if (card) this.#paintFace(g, PAD, PAD, card);
+      else this.#paintBack(g, PAD, PAD);
+    });
+  }
+
+  /** Crisp card face: top-lit body, corner indices, pips or a court panel. */
+  #paintFace(g, x, y, card) {
+    const s = CARD_W / 84;
+    const value = card.rank === 'A' ? 1
+      : card.rank === 'J' ? 11 : card.rank === 'Q' ? 12 : card.rank === 'K' ? 13
+      : Number(card.rank);
+    g.save();
+    g.shadowColor = 'rgba(0,0,0,0.5)';
+    g.shadowBlur = 3;
+    g.shadowOffsetY = 1;
+    const body = g.createLinearGradient(0, y, 0, y + CARD_H);
+    body.addColorStop(0, '#ffffff');
+    body.addColorStop(0.12, '#f5f8fe');
+    body.addColorStop(1, '#dbe2f0');
+    g.fillStyle = body;
+    this.roundRect(g, x, y, CARD_W, CARD_H, 7).fill();
+    g.restore();
+    g.strokeStyle = 'rgba(13,18,30,0.5)';
+    g.lineWidth = 1;
+    this.roundRect(g, x + 0.5, y + 0.5, CARD_W - 1, CARD_H - 1, 6.5).stroke();
+    g.strokeStyle = 'rgba(255,255,255,0.75)';
+    this.roundRect(g, x + 1.5, y + 1.5, CARD_W - 3, CARD_H - 3, 5.5).stroke();
+
+    g.fillStyle = card.red ? '#e11d55' : '#1c2230';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+
+    // Corner indices, the second rotated into the opposite corner.
+    for (const rot of [false, true]) {
+      g.save();
+      if (rot) {
+        g.translate(x * 2 + CARD_W, y * 2 + CARD_H);
+        g.rotate(Math.PI);
+      }
+      g.font = `700 ${Math.round(17 * s)}px ui-monospace, "SF Mono", Menlo, monospace`;
+      g.fillText(card.rank, x + 14 * s, y + 15 * s);
+      g.font = `${Math.round(14 * s)}px system-ui, sans-serif`;
+      g.fillText(card.glyph, x + 14 * s, y + 32 * s);
+      g.restore();
     }
 
-    ctx.fillStyle = '#f4f7ff';
-    this.roundRect(ctx, x, y, CARD_W, CARD_H, 7).fill();
-    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
-    ctx.lineWidth = 1;
-    this.roundRect(ctx, x + 0.5, y + 0.5, CARD_W - 1, CARD_H - 1, 7).stroke();
+    if (value === 1) {
+      g.font = `${Math.round(44 * s)}px system-ui, sans-serif`;
+      g.shadowColor = card.red ? 'rgba(225,29,85,0.4)' : 'rgba(28,34,48,0.35)';
+      g.shadowBlur = 8 * s;
+      g.fillText(card.glyph, x + CARD_W / 2, y + CARD_H / 2 + 2 * s);
+    } else if (value >= 11) {
+      // Court cards get a double-ruled panel instead of a figure.
+      const px = x + 19 * s;
+      const py = y + 22 * s;
+      const pw = CARD_W - 38 * s;
+      const ph = CARD_H - 44 * s;
+      g.strokeStyle = card.red ? 'rgba(225,29,85,0.45)' : 'rgba(28,34,48,0.4)';
+      g.lineWidth = 1;
+      this.roundRect(g, px, py, pw, ph, 5 * s).stroke();
+      this.roundRect(g, px + 2.5 * s, py + 2.5 * s, pw - 5 * s, ph - 5 * s, 3.5 * s).stroke();
+      g.font = `700 ${Math.round(30 * s)}px ui-monospace, "SF Mono", Menlo, monospace`;
+      g.fillText(card.rank, x + CARD_W / 2, y + CARD_H / 2 - 7 * s);
+      g.font = `${Math.round(16 * s)}px system-ui, sans-serif`;
+      g.fillText(card.glyph, x + CARD_W / 2, y + CARD_H / 2 + 16 * s);
+    } else {
+      // Number cards carry their real pip layout, lower half upside down.
+      g.font = `${Math.round(15 * s)}px system-ui, sans-serif`;
+      const left = x + 27 * s;
+      const right = x + CARD_W - 27 * s;
+      const top = y + 26 * s;
+      const bottom = y + CARD_H - 26 * s;
+      for (const [cx, cy] of PIPS[value]) {
+        const px = left + (right - left) * cx;
+        const py = top + (bottom - top) * cy;
+        if (cy > 0.5) {
+          g.save();
+          g.translate(px, py);
+          g.rotate(Math.PI);
+          g.fillText(card.glyph, 0, s);
+          g.restore();
+        } else {
+          g.fillText(card.glyph, px, py + s);
+        }
+      }
+    }
+  }
 
-    const ink = card.red ? '#d81f4a' : '#141821';
-    ctx.fillStyle = ink;
-    ctx.textBaseline = 'top';
-    ctx.textAlign = 'left';
-    ctx.font = '700 14px ui-monospace, "SF Mono", Menlo, monospace';
-    ctx.fillText(card.rank, x + 6, y + 5);
-    ctx.font = '12px system-ui, sans-serif';
-    ctx.fillText(card.glyph, x + 6, y + 21);
+  /** Card back: indigo body, cyan lattice, a twin-diamond neon motif. */
+  #paintBack(g, x, y) {
+    const s = CARD_W / 84;
+    g.save();
+    g.shadowColor = 'rgba(0,0,0,0.5)';
+    g.shadowBlur = 3;
+    g.shadowOffsetY = 1;
+    const body = g.createLinearGradient(0, y, 0, y + CARD_H);
+    body.addColorStop(0, '#1b2440');
+    body.addColorStop(1, '#111830');
+    g.fillStyle = body;
+    this.roundRect(g, x, y, CARD_W, CARD_H, 7).fill();
+    g.restore();
+    g.strokeStyle = 'rgba(0,229,255,0.45)';
+    g.lineWidth = 1.4;
+    this.roundRect(g, x + 0.7, y + 0.7, CARD_W - 1.4, CARD_H - 1.4, 6).stroke();
 
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.font = '26px system-ui, sans-serif';
-    ctx.globalAlpha = 0.9;
-    ctx.fillText(card.glyph, x + CARD_W / 2, y + CARD_H / 2 + 4);
-    ctx.globalAlpha = 1;
-    ctx.restore();
+    g.save();
+    this.roundRect(g, x + 4, y + 4, CARD_W - 8, CARD_H - 8, 4).clip();
+    g.strokeStyle = 'rgba(0,229,255,0.13)';
+    g.lineWidth = 1;
+    g.beginPath();
+    for (let i = -CARD_H; i < CARD_W + CARD_H; i += 8) {
+      g.moveTo(x + i, y + CARD_H);
+      g.lineTo(x + i + CARD_H, y);
+      g.moveTo(x + i, y);
+      g.lineTo(x + i + CARD_H, y + CARD_H);
+    }
+    g.stroke();
+    g.restore();
+    g.strokeStyle = 'rgba(0,229,255,0.28)';
+    this.roundRect(g, x + 4, y + 4, CARD_W - 8, CARD_H - 8, 4).stroke();
+
+    const cx = x + CARD_W / 2;
+    const cy = y + CARD_H / 2;
+    g.save();
+    g.translate(cx, cy);
+    g.rotate(Math.PI / 4);
+    g.fillStyle = '#131b33';
+    g.fillRect(-13 * s, -13 * s, 26 * s, 26 * s);
+    g.strokeStyle = 'rgba(0,229,255,0.55)';
+    g.lineWidth = 1.2;
+    g.shadowColor = '#00e5ff';
+    g.shadowBlur = 7;
+    g.strokeRect(-10 * s, -10 * s, 20 * s, 20 * s);
+    g.strokeStyle = 'rgba(255,46,136,0.6)';
+    g.shadowColor = '#ff2e88';
+    g.strokeRect(-5 * s, -5 * s, 10 * s, 10 * s);
+    g.restore();
   }
 }
