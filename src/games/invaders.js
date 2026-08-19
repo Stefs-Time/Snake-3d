@@ -44,7 +44,43 @@ export default class Invaders extends BaseGame {
 
     this.wave = 1;
     this.setLives(3);
+    this.#buildBackdrop();
     this.#startWave();
+  }
+
+  /**
+   * The sky never changes, so the vignette, stars and dot grid are rendered
+   * once to an offscreen canvas at 2x and blitted every frame.
+   */
+  #buildBackdrop() {
+    const scale = 2;
+    const canvas = document.createElement('canvas');
+    canvas.width = W * scale;
+    canvas.height = H * scale;
+    const b = canvas.getContext('2d');
+    b.scale(scale, scale);
+
+    b.fillStyle = '#04060a';
+    b.fillRect(0, 0, W, H);
+    const sky = b.createLinearGradient(0, 0, 0, H);
+    sky.addColorStop(0, 'rgba(180,123,255,0.10)');
+    sky.addColorStop(0.55, 'rgba(4,6,10,0)');
+    sky.addColorStop(1, 'rgba(0,229,255,0.06)');
+    b.fillStyle = sky;
+    b.fillRect(0, 0, W, H);
+
+    for (let i = 0; i < 70; i++) {
+      const x = this.random() * W;
+      const y = this.random() * (H - 90);
+      b.fillStyle = `rgba(255,255,255,${(0.08 + this.random() * 0.28).toFixed(3)})`;
+      b.fillRect(x, y, 1.5, 1.5);
+    }
+
+    b.fillStyle = 'rgba(255,255,255,0.03)';
+    for (let x = 64; x < W; x += 64) {
+      for (let y = 64; y < H; y += 64) b.fillRect(x - 1, y - 1, 2, 2);
+    }
+    this.backdrop = canvas;
   }
 
   #startWave() {
@@ -100,13 +136,16 @@ export default class Invaders extends BaseGame {
     this.shields = [];
 
     for (let s = 0; s < 4; s++) {
-      const baseX = 46 + s * 96;
+      const baseX = 55 + s * 96;
       const baseY = H - 150;
       const blocks = [];
       SHAPE.forEach((line, row) => {
         [...line].forEach((ch, col) => {
           if (ch === '#') {
-            blocks.push({ x: baseX + col * BLOCK, y: baseY + row * BLOCK, size: BLOCK, alive: true });
+            blocks.push({
+              x: baseX + col * BLOCK, y: baseY + row * BLOCK, size: BLOCK,
+              alive: true, top: row < 2,
+            });
           }
         });
       });
@@ -170,6 +209,20 @@ export default class Invaders extends BaseGame {
       this.banner('Wave clear');
       this.play('levelup');
       return;
+    }
+
+    // An alien that descends far enough to touch the cannon destroys it —
+    // otherwise the formation could sit in the player's lap with no effect
+    // until the separate landing check fired.
+    const p = this.player;
+    for (const alien of alive) {
+      if (
+        alien.y + ALIEN_H > p.y - 12 &&
+        alien.x + ALIEN_W > p.x - p.w / 2 && alien.x < p.x + p.w / 2
+      ) {
+        this.#playerHit();
+        return;
+      }
     }
 
     // This is the whole trick: fewer aliens, faster steps.
@@ -264,7 +317,9 @@ export default class Invaders extends BaseGame {
           bullet.y > alien.y && bullet.y < alien.y + ALIEN_H
         ) {
           alien.alive = false;
-          this.addScore(ROW_POINTS[alien.type]);
+          this.addScore(ROW_POINTS[alien.type], {
+            x: alien.x + ALIEN_W / 2, y: alien.y, color: ROW_COLORS[alien.type],
+          });
           this.particles.emit(alien.x + ALIEN_W / 2, alien.y + ALIEN_H / 2, {
             count: 14, speed: 130, color: ROW_COLORS[alien.type], life: 0.5, size: 2.6,
           });
@@ -358,7 +413,7 @@ export default class Invaders extends BaseGame {
     ctx.save();
     this.shake.apply(ctx);
 
-    this.drawGrid(ctx, 64, 'rgba(255,255,255,0.03)');
+    ctx.drawImage(this.backdrop, 0, 0, W, H);
 
     /* --- aliens --- */
     const wobble = this.frame % 2;
@@ -377,6 +432,12 @@ export default class Invaders extends BaseGame {
       ctx.ellipse(this.ufo.x, this.ufo.y, 20, 7, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillRect(this.ufo.x - 8, this.ufo.y - 11, 16, 6);
+      // Hull lights and a dim glass dome.
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = 'rgba(255,255,255,0.75)';
+      for (const dx of [-12, 0, 12]) ctx.fillRect(this.ufo.x + dx - 1.5, this.ufo.y - 1.5, 3, 3);
+      ctx.fillStyle = 'rgba(255,184,222,0.5)';
+      ctx.fillRect(this.ufo.x - 6, this.ufo.y - 10, 12, 3);
       ctx.restore();
     }
 
@@ -384,7 +445,7 @@ export default class Invaders extends BaseGame {
     for (const shield of this.shields) {
       for (const block of shield) {
         if (!block.alive) continue;
-        ctx.fillStyle = '#39ff88';
+        ctx.fillStyle = block.top ? '#8affc0' : '#39ff88';
         ctx.fillRect(block.x, block.y, block.size, block.size);
       }
     }
@@ -395,10 +456,21 @@ export default class Invaders extends BaseGame {
       ctx.save();
       ctx.shadowColor = '#b47bff';
       ctx.shadowBlur = 12;
-      ctx.fillStyle = '#d9c7ff';
+      const hull = ctx.createLinearGradient(0, p.y - 12, 0, p.y + p.h);
+      hull.addColorStop(0, '#ffffff');
+      hull.addColorStop(0.45, '#d9c7ff');
+      hull.addColorStop(1, '#9578e8');
+      ctx.fillStyle = hull;
       ctx.fillRect(p.x - p.w / 2, p.y, p.w, p.h);
       ctx.fillRect(p.x - 4, p.y - 7, 8, 8);
       ctx.fillRect(p.x - 1.5, p.y - 12, 3, 6);
+      // A warm muzzle tip while the shot is ready.
+      if (p.cooldown <= 0 && this.bullets.length === 0) {
+        ctx.shadowColor = '#ffd23f';
+        ctx.shadowBlur = 8;
+        ctx.fillStyle = '#ffd23f';
+        ctx.fillRect(p.x - 1.5, p.y - 14, 3, 2);
+      }
       ctx.restore();
     }
 

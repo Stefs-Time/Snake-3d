@@ -43,8 +43,44 @@ export default class Vector extends BaseGame {
     this.saucerTimer = 28;
     this.hyperCooldown = 0;
 
+    this.#buildBackdrop();
     this.#resetShip(true);
     this.#spawnWave();
+  }
+
+  /**
+   * Space itself never changes, so the nebula haze and the starfield are
+   * rendered once to an offscreen canvas at 2x and blitted every frame.
+   */
+  #buildBackdrop() {
+    const scale = 2;
+    const canvas = document.createElement('canvas');
+    canvas.width = W * scale;
+    canvas.height = H * scale;
+    const b = canvas.getContext('2d');
+    b.scale(scale, scale);
+
+    b.fillStyle = '#04060a';
+    b.fillRect(0, 0, W, H);
+    const haze = b.createRadialGradient(W * 0.3, H * 0.25, 40, W * 0.3, H * 0.25, H * 0.9);
+    haze.addColorStop(0, 'rgba(125,211,252,0.07)');
+    haze.addColorStop(1, 'rgba(4,6,10,0)');
+    b.fillStyle = haze;
+    b.fillRect(0, 0, W, H);
+    const haze2 = b.createRadialGradient(W * 0.78, H * 0.8, 30, W * 0.78, H * 0.8, H * 0.7);
+    haze2.addColorStop(0, 'rgba(180,123,255,0.06)');
+    haze2.addColorStop(1, 'rgba(4,6,10,0)');
+    b.fillStyle = haze2;
+    b.fillRect(0, 0, W, H);
+
+    for (let i = 0; i < 110; i++) {
+      const x = this.random() * W;
+      const y = this.random() * H;
+      const size = this.random() < 0.85 ? 1.2 : 2;
+      b.fillStyle = `rgba(255,255,255,${(0.1 + this.random() * 0.35).toFixed(3)})`;
+      b.fillRect(x, y, size, size);
+    }
+    this.backdrop = canvas;
   }
 
   #resetShip(fresh = false) {
@@ -109,9 +145,15 @@ export default class Vector extends BaseGame {
   update(dt) {
     this.updateEffects(dt);
 
+    this.#updateRocks(dt);
+    this.#updateBullets(dt);
+    this.#updateSaucer(dt);
+
     if (!this.ship.alive) {
+      // Shots already in flight still count while the wreck settles.
+      this.#checkBulletCollisions();
       this.respawnTimer -= dt;
-      if (this.respawnTimer <= 0) {
+      if (this.respawnTimer <= 0 && this.#centreClear()) {
         const lives = this.lives - 1;
         this.setLives(Math.max(0, lives));
         if (lives <= 0) {
@@ -121,16 +163,12 @@ export default class Vector extends BaseGame {
         }
         this.#resetShip();
       }
-      this.#updateRocks(dt);
-      this.#updateBullets(dt);
       return;
     }
 
     this.#updateShip(dt);
-    this.#updateRocks(dt);
-    this.#updateBullets(dt);
-    this.#updateSaucer(dt);
-    this.#checkCollisions();
+    this.#checkBulletCollisions();
+    if (this.ship.alive) this.#checkShipCollisions();
 
     if (!this.rocks.length && !this.saucer) {
       this.wave++;
@@ -138,6 +176,14 @@ export default class Vector extends BaseGame {
       this.play('levelup');
       this.#spawnWave();
     }
+  }
+
+  /** Never respawn straight into a rock — wait for the middle to open up. */
+  #centreClear() {
+    for (const rock of this.rocks) {
+      if (Math.hypot(rock.x - W / 2, rock.y - H / 2) < rock.radius + 80) return false;
+    }
+    return true;
   }
 
   #updateShip(dt) {
@@ -177,7 +223,13 @@ export default class Vector extends BaseGame {
     ship.x = wrap(ship.x + ship.vx * dt, W);
     ship.y = wrap(ship.y + ship.vy * dt, H);
 
-    if (this.input.pressed('action') && ship.cooldown <= 0 && this.bullets.length < 5) {
+    // Only your own shots count against the magazine — saucer fire sharing
+    // the array must not eat into it.
+    let inFlight = 0;
+    for (const bullet of this.bullets) {
+      if (bullet.friendly) inFlight++;
+    }
+    if (this.input.pressed('action') && ship.cooldown <= 0 && inFlight < 5) {
       this.bullets.push({
         x: ship.x + Math.cos(ship.angle) * 14,
         y: ship.y + Math.sin(ship.angle) * 14,
@@ -259,6 +311,8 @@ export default class Vector extends BaseGame {
     s.fireTimer -= dt;
     if (s.fireTimer <= 0) {
       s.fireTimer = 1.6;
+      // No target while the ship is a debris field.
+      if (!this.ship.alive) return;
       // It leads the ship slightly, but not perfectly.
       const angle = Math.atan2(this.ship.y - s.y, this.ship.x - s.x) + (this.random() - 0.5) * 0.5;
       this.bullets.push({
@@ -274,7 +328,7 @@ export default class Vector extends BaseGame {
 
   /* =========================================================== collisions */
 
-  #checkCollisions() {
+  #checkBulletCollisions() {
     /* --- bullets against rocks --- */
     for (const bullet of this.bullets) {
       if (!bullet.friendly) continue;
@@ -303,7 +357,9 @@ export default class Vector extends BaseGame {
         break;
       }
     }
+  }
 
+  #checkShipCollisions() {
     if (this.ship.invulnerable > 0) return;
 
     /* --- the ship against everything --- */
@@ -368,22 +424,41 @@ export default class Vector extends BaseGame {
     ctx.save();
     this.shake.apply(ctx);
 
-    // A sparse starfield, deterministic so it does not shimmer.
-    ctx.fillStyle = 'rgba(255,255,255,0.35)';
-    for (let i = 0; i < 60; i++) {
-      const x = ((i * 9301 + 49297) % 233280) / 233280 * W;
-      const y = ((i * 4931 + 7907) % 233280) / 233280 * H;
-      ctx.fillRect(x, y, 1.2, 1.2);
-    }
+    ctx.drawImage(this.backdrop, 0, 0, W, H);
 
     for (const rock of this.rocks) this.#drawRock(ctx, rock);
     if (this.saucer) this.#drawSaucer(ctx);
 
+    ctx.save();
+    ctx.lineWidth = 1.5;
+    for (const bullet of this.bullets) {
+      // A short streak behind each shot sells the speed.
+      const speed = Math.hypot(bullet.vx, bullet.vy) || 1;
+      const tail = bullet.friendly ? 7 : 5;
+      ctx.strokeStyle = bullet.friendly ? 'rgba(255,255,255,0.35)' : 'rgba(255,92,122,0.4)';
+      ctx.beginPath();
+      ctx.moveTo(bullet.x, bullet.y);
+      ctx.lineTo(bullet.x - (bullet.vx / speed) * tail, bullet.y - (bullet.vy / speed) * tail);
+      ctx.stroke();
+    }
+    ctx.restore();
     for (const bullet of this.bullets) {
       this.glowCircle(ctx, bullet.x, bullet.y, bullet.friendly ? 2.4 : 3, bullet.friendly ? '#ffffff' : '#ff5c7a', 10);
     }
 
     if (this.ship.alive) this.#drawShip(ctx);
+
+    // Hyperspace recharge, tucked into the corner where the eye can find it.
+    if (this.hyperCooldown > 0) {
+      const t = 1 - Math.min(1, this.hyperCooldown / 3);
+      ctx.save();
+      ctx.fillStyle = 'rgba(125,211,252,0.25)';
+      ctx.fillRect(12, H - 14, 44, 3);
+      ctx.fillStyle = '#7dd3fc';
+      ctx.fillRect(12, H - 14, 44 * t, 3);
+      ctx.restore();
+      this.text(ctx, 'HYPER', 34, H - 22, { size: 8, color: 'rgba(125,211,252,0.6)' });
+    }
 
     this.drawEffects(ctx);
     ctx.restore();
@@ -439,6 +514,9 @@ export default class Vector extends BaseGame {
       i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
     });
     ctx.closePath();
+    // A whisper of fill gives the outline a body to hang on.
+    ctx.fillStyle = 'rgba(125,211,252,0.06)';
+    ctx.fill();
     ctx.stroke();
     ctx.restore();
   }
