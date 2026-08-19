@@ -25,6 +25,9 @@ const COLORS = [
 const FLIP_TIME = 0.2;
 const HOLD_TIME = 0.75; // how long a mismatched pair stays visible
 
+/** Padding baked around each card sprite so its glow has room to land. */
+const PAD = 8;
+
 /** Rounds get one more pair and slightly less time each. */
 const ROUNDS = [
   { cols: 4, rows: 3, time: 70 },
@@ -48,13 +51,20 @@ export default class Memory extends BaseGame {
     this.host.setSecondaryLabel('Round');
     this.host.setHint('Turn two cards and remember what you saw');
     this.setLives(3);
+    this.layers = new Map();
 
     this.round = 0;
     this.breakTimer = 0;
+    this.rings = [];
+    this.hoverCard = null;
     this.#deal();
 
     this.banner('Find the pairs');
     this.play('ready');
+  }
+
+  teardown() {
+    this.layers?.clear();
   }
 
   #deal() {
@@ -62,6 +72,7 @@ export default class Memory extends BaseGame {
     this.cols = config.cols;
     this.rows = config.rows;
     this.timeLeft = config.time;
+    this.roundTime = config.time;
 
     const pairs = (this.cols * this.rows) / 2;
     const kinds = [];
@@ -78,6 +89,7 @@ export default class Memory extends BaseGame {
       faceUp: false,
       matched: false,
       flip: 0, // 0 face-down .. 1 face-up
+      settle: 0, // rises briefly when the pair lands
     }));
 
     this.picked = [];
@@ -85,6 +97,8 @@ export default class Memory extends BaseGame {
     this.matches = 0;
     this.combo = 0;
     this.flips = 0;
+    this.rings = [];
+    this.hoverCard = null;
     this.host.setSecondary(this.round + 1);
     this.meta = { round: this.round + 1 };
 
@@ -122,7 +136,15 @@ export default class Memory extends BaseGame {
     for (const card of this.cards) {
       const target = card.faceUp || card.matched ? 1 : 0;
       card.flip += Math.sign(target - card.flip) * Math.min(dt / FLIP_TIME, Math.abs(target - card.flip));
+      if (card.settle > 0) card.settle = Math.max(0, card.settle - dt / 0.35);
     }
+    if (this.rings.length) {
+      for (const ring of this.rings) ring.life -= dt;
+      this.rings = this.rings.filter((r) => r.life > 0);
+    }
+
+    const m = this.mouse;
+    this.hoverCard = null;
 
     if (this.breakTimer > 0) {
       this.breakTimer -= dt;
@@ -149,14 +171,15 @@ export default class Memory extends BaseGame {
       return;
     }
 
-    const m = this.mouse;
-    if (!m.pressed || this.picked.length >= 2) return;
+    if (this.picked.length >= 2) return;
 
     for (const card of this.cards) {
       if (card.matched || card.faceUp) continue;
       const [x, y, w, h] = this.#cardRect(card);
       if (!this.hits(m.x, m.y, x, y, w, h)) continue;
+      this.hoverCard = card;
 
+      if (!m.pressed) return;
       card.faceUp = true;
       this.picked.push(card);
       this.flips++;
@@ -178,21 +201,32 @@ export default class Memory extends BaseGame {
 
     a.matched = true;
     b.matched = true;
+    a.settle = 1;
+    b.settle = 1;
     this.matches++;
     this.combo++;
     this.picked = [];
 
     // Back-to-back matches are worth progressively more.
     const points = 150 + (this.combo - 1) * 75;
+    const color = COLORS[a.kind % COLORS.length];
     const [x, y, w, h] = this.#cardRect(b);
-    this.addScore(points, { x: x + w / 2, y: y + h / 2, color: COLORS[a.kind % COLORS.length], label: `+${points}` });
+    this.addScore(points, { x: x + w / 2, y: y + h / 2, color, label: `+${points}` });
     this.play('powerup');
     this.shake.add(3);
     if (this.combo > 1) this.banner(`Combo x${this.combo}`);
 
-    this.particles.emit(x + w / 2, y + h / 2, {
-      count: 14, speed: 120, color: COLORS[a.kind % COLORS.length], life: 0.5, size: 3,
-    });
+    // Both halves of the pair ripple, so the eye connects them.
+    for (const card of [a, b]) {
+      const [cx, cy, cw, ch] = this.#cardRect(card);
+      this.rings.push({
+        x: cx + cw / 2, y: cy + ch / 2, r0: Math.min(cw, ch) * 0.4,
+        life: 0.45, maxLife: 0.45, color,
+      });
+      this.particles.emit(cx + cw / 2, cy + ch / 2, {
+        count: 10, speed: 110, color, life: 0.5, size: 2.8, shape: 'circle',
+      });
+    }
 
     if (this.matches * 2 === this.cards.length) this.#clearRound();
   }
@@ -222,12 +256,13 @@ export default class Memory extends BaseGame {
   /* ================================================================= draw */
 
   draw(ctx) {
-    this.clear(ctx, '#070a12');
+    ctx.drawImage(this.#backdrop(), 0, 0, W, H);
     ctx.save();
     this.shake.apply(ctx);
 
     this.#drawTimer(ctx);
     for (const card of this.cards) this.#drawCard(ctx, card);
+    this.#drawRings(ctx);
     this.drawEffects(ctx);
 
     ctx.restore();
@@ -235,8 +270,7 @@ export default class Memory extends BaseGame {
 
   #drawTimer(ctx) {
     const barW = W - 80;
-    const config = ROUNDS[Math.min(this.round, ROUNDS.length - 1)];
-    const pct = Math.max(0, this.timeLeft / config.time);
+    const pct = Math.max(0, Math.min(1, this.timeLeft / this.roundTime));
     ctx.save();
     ctx.fillStyle = 'rgba(255,255,255,0.07)';
     this.roundRect(ctx, 40, 26, barW, 7, 4).fill();
@@ -251,6 +285,23 @@ export default class Memory extends BaseGame {
     }
   }
 
+  #drawRings(ctx) {
+    if (!this.rings.length) return;
+    ctx.save();
+    ctx.lineWidth = 2.5;
+    for (const ring of this.rings) {
+      const k = 1 - ring.life / ring.maxLife;
+      ctx.globalAlpha = (1 - k) * 0.7;
+      ctx.strokeStyle = ring.color;
+      ctx.shadowColor = ring.color;
+      ctx.shadowBlur = 10;
+      ctx.beginPath();
+      ctx.arc(ring.x, ring.y, ring.r0 + k * 30, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   #drawCard(ctx, card) {
     const [x, y, w, h] = this.#cardRect(card);
     // The flip is a horizontal squash through the midpoint.
@@ -258,44 +309,154 @@ export default class Memory extends BaseGame {
     const scaleX = Math.abs(Math.cos(t * Math.PI));
     const showFace = t > 0.5;
     const drawW = Math.max(2, w * (t === 0 || t === 1 ? 1 : scaleX));
-    const dx = x + (w - drawW) / 2;
+    const sx = drawW / w;
+    const sprite = showFace ? this.#faceSprite(card.kind) : this.#backSprite();
 
     ctx.save();
-    if (card.matched) ctx.globalAlpha = 0.45;
-
-    if (showFace) {
-      ctx.fillStyle = '#141a26';
-      this.roundRect(ctx, dx, y, drawW, h, 9).fill();
-      ctx.strokeStyle = COLORS[card.kind % COLORS.length];
-      ctx.lineWidth = 2;
-      ctx.shadowColor = COLORS[card.kind % COLORS.length];
-      ctx.shadowBlur = card.matched ? 6 : 14;
-      this.roundRect(ctx, dx + 1, y + 1, drawW - 2, h - 2, 9).stroke();
-      ctx.restore();
-
-      if (drawW > w * 0.4) {
-        this.#drawSymbol(ctx, card.kind, x + w / 2, y + h / 2, Math.min(w, h) * 0.3);
-      }
-      return;
-    }
-
-    // Back.
-    ctx.fillStyle = '#101726';
-    this.roundRect(ctx, dx, y, drawW, h, 9).fill();
-    ctx.strokeStyle = 'rgba(56,189,248,0.28)';
-    ctx.lineWidth = 1.5;
-    this.roundRect(ctx, dx + 0.75, y + 0.75, drawW - 1.5, h - 1.5, 9).stroke();
-    if (drawW > w * 0.5) {
-      ctx.globalAlpha = 0.5;
-      ctx.strokeStyle = 'rgba(56,189,248,0.4)';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.arc(x + w / 2, y + h / 2, Math.min(w, h) * 0.2, 0, Math.PI * 2);
-      ctx.moveTo(x + w / 2 + Math.min(w, h) * 0.32, y + h / 2);
-      ctx.arc(x + w / 2, y + h / 2, Math.min(w, h) * 0.32, 0, Math.PI * 2);
-      ctx.stroke();
-    }
+    if (card.matched) ctx.globalAlpha = 0.55;
+    const lift = card.settle > 0 ? Math.sin(card.settle * Math.PI) * 4 : 0;
+    ctx.drawImage(sprite, x + (w - drawW) / 2 - PAD * sx, y - PAD - lift, (w + PAD * 2) * sx, h + PAD * 2);
     ctx.restore();
+
+    if (!showFace && card === this.hoverCard) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(56,189,248,0.6)';
+      ctx.lineWidth = 1.6;
+      ctx.shadowColor = '#38bdf8';
+      ctx.shadowBlur = 8;
+      this.roundRect(ctx, x + 1, y + 1, w - 2, h - 2, 9).stroke();
+      ctx.restore();
+    }
+  }
+
+  /* ============================================================= sprites */
+
+  /** Fetch-or-paint an offscreen layer, rendered once at device resolution. */
+  #layer(key, w, h, paint) {
+    let c = this.layers.get(key);
+    if (c) return c;
+    const dpr = Math.min(2, this.host.dpr || 1);
+    c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(w * dpr));
+    c.height = Math.max(1, Math.round(h * dpr));
+    const g = c.getContext('2d');
+    g.scale(dpr, dpr);
+    paint(g);
+    this.layers.set(key, c);
+    return c;
+  }
+
+  /** The table, painted once: cool wash, corner vignette, faint dot grid. */
+  #backdrop() {
+    return this.#layer('bg', W, H, (g) => {
+      g.fillStyle = '#070a12';
+      g.fillRect(0, 0, W, H);
+      const glow = g.createRadialGradient(W / 2, H * 0.4, 40, W / 2, H * 0.5, W * 0.75);
+      glow.addColorStop(0, 'rgba(56,189,248,0.07)');
+      glow.addColorStop(1, 'rgba(4,8,16,0)');
+      g.fillStyle = glow;
+      g.fillRect(0, 0, W, H);
+      const vig = g.createRadialGradient(W / 2, H / 2, H * 0.45, W / 2, H / 2, W * 0.75);
+      vig.addColorStop(0, 'rgba(0,0,0,0)');
+      vig.addColorStop(1, 'rgba(0,0,0,0.38)');
+      g.fillStyle = vig;
+      g.fillRect(0, 0, W, H);
+      g.fillStyle = 'rgba(255,255,255,0.035)';
+      for (let y = 16; y < H; y += 32) {
+        for (let x = 16; x < W; x += 32) g.fillRect(x - 1, y - 1, 2, 2);
+      }
+    });
+  }
+
+  #sizeKey() {
+    return `${Math.round(this.cardW)}x${Math.round(this.cardH)}`;
+  }
+
+  /** Card face: dark top-lit panel, neon edge and glyph baked in one pass. */
+  #faceSprite(kind) {
+    const w = this.cardW;
+    const h = this.cardH;
+    return this.#layer(`face:${kind}:${this.#sizeKey()}`, w + PAD * 2, h + PAD * 2, (g) => {
+      const color = COLORS[kind % COLORS.length];
+      g.save();
+      g.shadowColor = 'rgba(0,0,0,0.5)';
+      g.shadowBlur = 5;
+      g.shadowOffsetY = 2;
+      const body = g.createLinearGradient(0, PAD, 0, PAD + h);
+      body.addColorStop(0, '#1c2436');
+      body.addColorStop(0.16, '#161d2c');
+      body.addColorStop(1, '#0f1420');
+      g.fillStyle = body;
+      this.roundRect(g, PAD, PAD, w, h, 10).fill();
+      g.restore();
+      g.strokeStyle = 'rgba(255,255,255,0.08)';
+      g.lineWidth = 1;
+      this.roundRect(g, PAD + 2, PAD + 2, w - 4, h - 4, 8).stroke();
+      g.strokeStyle = color;
+      g.lineWidth = 2;
+      g.shadowColor = color;
+      g.shadowBlur = 12;
+      this.roundRect(g, PAD + 1, PAD + 1, w - 2, h - 2, 9).stroke();
+      this.#drawSymbol(g, kind, PAD + w / 2, PAD + h / 2, Math.min(w, h) * 0.3);
+    });
+  }
+
+  /** Card back: indigo body, cyan lattice, concentric-ring motif. */
+  #backSprite() {
+    const w = this.cardW;
+    const h = this.cardH;
+    return this.#layer(`back:${this.#sizeKey()}`, w + PAD * 2, h + PAD * 2, (g) => {
+      g.save();
+      g.shadowColor = 'rgba(0,0,0,0.5)';
+      g.shadowBlur = 5;
+      g.shadowOffsetY = 2;
+      const body = g.createLinearGradient(0, PAD, 0, PAD + h);
+      body.addColorStop(0, '#152036');
+      body.addColorStop(1, '#0d1322');
+      g.fillStyle = body;
+      this.roundRect(g, PAD, PAD, w, h, 10).fill();
+      g.restore();
+      g.strokeStyle = 'rgba(56,189,248,0.32)';
+      g.lineWidth = 1.5;
+      this.roundRect(g, PAD + 0.75, PAD + 0.75, w - 1.5, h - 1.5, 9).stroke();
+
+      g.save();
+      this.roundRect(g, PAD + 5, PAD + 5, w - 10, h - 10, 6).clip();
+      g.strokeStyle = 'rgba(56,189,248,0.1)';
+      g.lineWidth = 1;
+      g.beginPath();
+      for (let i = -h; i < w + h; i += 10) {
+        g.moveTo(PAD + i, PAD + h);
+        g.lineTo(PAD + i + h, PAD);
+        g.moveTo(PAD + i, PAD);
+        g.lineTo(PAD + i + h, PAD + h);
+      }
+      g.stroke();
+      g.restore();
+      g.strokeStyle = 'rgba(56,189,248,0.2)';
+      this.roundRect(g, PAD + 5, PAD + 5, w - 10, h - 10, 6).stroke();
+
+      const cx = PAD + w / 2;
+      const cy = PAD + h / 2;
+      const r = Math.min(w, h);
+      g.strokeStyle = 'rgba(56,189,248,0.5)';
+      g.lineWidth = 1.4;
+      g.shadowColor = '#38bdf8';
+      g.shadowBlur = 8;
+      g.beginPath();
+      g.arc(cx, cy, r * 0.2, 0, Math.PI * 2);
+      g.stroke();
+      g.strokeStyle = 'rgba(255,46,136,0.4)';
+      g.shadowColor = '#ff2e88';
+      g.beginPath();
+      g.arc(cx, cy, r * 0.31, 0, Math.PI * 2);
+      g.stroke();
+      g.fillStyle = 'rgba(56,189,248,0.7)';
+      g.shadowColor = '#38bdf8';
+      g.beginPath();
+      g.arc(cx, cy, r * 0.045, 0, Math.PI * 2);
+      g.fill();
+    });
   }
 
   /** Twelve distinct shapes, all drawn from paths. */

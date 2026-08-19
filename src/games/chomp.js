@@ -113,6 +113,7 @@ export default class Chomp extends BaseGame {
 
     this.#parseMaze();
     this.#buildWallEdges();
+    this.#buildBackdrop();
 
     this.level = 1;
     this.setLives(3);
@@ -165,6 +166,78 @@ export default class Chomp extends BaseGame {
     this.wallEdges = edges;
   }
 
+  /**
+   * The maze never changes shape, so the walls — glow pass, core pass, door —
+   * are rendered once to an offscreen canvas at 2x and blitted every frame.
+   * That takes a few hundred shadowBlur strokes out of the per-frame budget.
+   * A second, brighter copy is cross-faded in for the level-clear celebration.
+   */
+  #buildBackdrop() {
+    const scale = 2;
+    const strokeWalls = (bctx, glow, glowBlur, glowWidth, core, coreBlur) => {
+      bctx.lineCap = 'round';
+      bctx.beginPath();
+      for (const [x1, y1, x2, y2] of this.wallEdges) {
+        bctx.moveTo(x1, y1);
+        bctx.lineTo(x2, y2);
+      }
+      bctx.strokeStyle = glow;
+      bctx.shadowColor = glow;
+      bctx.shadowBlur = glowBlur;
+      bctx.lineWidth = glowWidth;
+      bctx.stroke();
+      bctx.strokeStyle = core;
+      bctx.shadowColor = core;
+      bctx.shadowBlur = coreBlur;
+      bctx.lineWidth = 2;
+      bctx.stroke();
+    };
+
+    const make = () => {
+      const c = document.createElement('canvas');
+      c.width = this.width * scale;
+      c.height = this.height * scale;
+      const bctx = c.getContext('2d');
+      bctx.scale(scale, scale);
+      return [c, bctx];
+    };
+
+    {
+      const [canvas, bctx] = make();
+      bctx.fillStyle = '#04060a';
+      bctx.fillRect(0, 0, this.width, this.height);
+      // A faint pool of light in the middle of the board, so the field has
+      // depth instead of sitting on a flat black.
+      const ambient = bctx.createRadialGradient(
+        this.width / 2, this.height / 2, 40,
+        this.width / 2, this.height / 2, this.height * 0.72,
+      );
+      ambient.addColorStop(0, 'rgba(37,99,235,0.11)');
+      ambient.addColorStop(1, 'rgba(4,6,10,0)');
+      bctx.fillStyle = ambient;
+      bctx.fillRect(0, 0, this.width, this.height);
+
+      strokeWalls(bctx, 'rgba(0,229,255,0.20)', 10, 5, '#2563eb', 8);
+
+      // The ghost-house door.
+      bctx.strokeStyle = '#ffb8de';
+      bctx.shadowColor = '#ffb8de';
+      bctx.shadowBlur = 6;
+      bctx.lineWidth = 3;
+      bctx.beginPath();
+      bctx.moveTo(13 * TILE, 12 * TILE + TILE / 2);
+      bctx.lineTo(15 * TILE, 12 * TILE + TILE / 2);
+      bctx.stroke();
+      this.mazeCanvas = canvas;
+    }
+
+    {
+      const [canvas, bctx] = make();
+      strokeWalls(bctx, 'rgba(154,216,255,0.35)', 14, 6, '#bfe6ff', 10);
+      this.mazeBright = canvas;
+    }
+  }
+
   /* ============================================================== a level */
 
   #startLevel() {
@@ -195,6 +268,7 @@ export default class Chomp extends BaseGame {
       queued: null,
       speed: 6.6 * TILE,
       mouth: 0,
+      pulse: 0,
     };
 
     this.ghosts = GHOSTS.map((def) => ({
@@ -214,6 +288,7 @@ export default class Chomp extends BaseGame {
   update(dt) {
     this.updateEffects(dt);
     this.pac.mouth += dt * 12;
+    if (this.pac.pulse > 0) this.pac.pulse = Math.max(0, this.pac.pulse - dt * 3);
 
     if (this.state === 'ready') {
       this.stateTimer -= dt;
@@ -284,7 +359,7 @@ export default class Chomp extends BaseGame {
     const requested = this.input.takeDirection();
     if (requested) pac.queued = requested;
 
-    // Slightly slower while a level is fresh, faster as you clear it out.
+    // The tunnel is the one stretch where he slows down.
     const speed = pac.speed * (this.#inTunnel(pac) ? 0.7 : 1);
     this.#move(pac, speed * dt, {
       onCenter: (entity) => {
@@ -352,10 +427,11 @@ export default class Chomp extends BaseGame {
     const duration = Math.max(1, 7 - (this.level - 1) * 0.6);
     this.frightenedTimer = duration;
     this.ghostsEaten = 0;
+    this.pac.pulse = 1;
     for (const ghost of this.ghosts) {
-      if (ghost.state === 'hunt' || ghost.state === 'leaving') {
+      if (ghost.state === 'hunt' || ghost.state === 'leaving' || ghost.state === 'house') {
         ghost.frightened = true;
-        ghost.reverseRequested = true;
+        if (ghost.state === 'hunt') ghost.reverseRequested = true;
       }
     }
     this.play('powerup');
@@ -551,6 +627,8 @@ export default class Chomp extends BaseGame {
       this.end();
       return;
     }
+    this.frightenedTimer = 0;
+    this.ghostsEaten = 0;
     this.#resetActors();
     this.state = 'ready';
     this.stateTimer = 1.6;
@@ -724,34 +802,18 @@ export default class Chomp extends BaseGame {
   }
 
   #drawMaze(ctx) {
-    const flash = this.state === 'cleared' && Math.floor(this.stateTimer * 6) % 2 === 0;
-    const color = flash ? '#ffffff' : '#2563eb';
+    ctx.drawImage(this.mazeCanvas, 0, 0, this.width, this.height);
 
-    ctx.save();
-    ctx.strokeStyle = color;
-    ctx.shadowColor = flash ? '#ffffff' : '#00e5ff';
-    ctx.shadowBlur = 8;
-    ctx.lineWidth = 2;
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    for (const [x1, y1, x2, y2] of this.wallEdges) {
-      ctx.moveTo(x1, y1);
-      ctx.lineTo(x2, y2);
+    if (this.state === 'cleared') {
+      // A slow, smooth breath of light through the walls — celebratory
+      // without ever hard-flipping to white.
+      const t = Math.max(0, Math.min(1, 1 - this.stateTimer / 2.2));
+      const pulse = 0.3 + 0.25 * Math.sin(t * Math.PI * 3);
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, pulse);
+      ctx.drawImage(this.mazeBright, 0, 0, this.width, this.height);
+      ctx.restore();
     }
-    ctx.stroke();
-    ctx.restore();
-
-    // The ghost-house door.
-    ctx.save();
-    ctx.strokeStyle = '#ffb8de';
-    ctx.shadowColor = '#ffb8de';
-    ctx.shadowBlur = 6;
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(13 * TILE, 12 * TILE + TILE / 2);
-    ctx.lineTo(15 * TILE, 12 * TILE + TILE / 2);
-    ctx.stroke();
-    ctx.restore();
   }
 
   #drawDots(ctx) {
@@ -785,13 +847,30 @@ export default class Chomp extends BaseGame {
   #drawFruit(ctx) {
     if (!this.fruit) return;
     const bob = Math.sin(performance.now() / 200) * 2;
-    this.glowCircle(ctx, this.fruit.x, this.fruit.y + bob, 6, this.fruit.color, 14);
+    const x = this.fruit.x;
+    const y = this.fruit.y + bob;
+    // Hurry-up blink in the last two seconds, so a fading fruit reads as such.
+    const fading = this.fruitTimer < 2;
+
     ctx.save();
+    if (fading) ctx.globalAlpha = 0.55 + 0.45 * Math.sin(this.fruitTimer * 6);
+    ctx.shadowColor = this.fruit.color;
+    ctx.shadowBlur = 14;
+    ctx.fillStyle = this.fruit.color;
+    ctx.beginPath();
+    ctx.arc(x, y, 6, 0, Math.PI * 2);
+    ctx.fill();
+    // Highlight and stem.
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = 'rgba(255,255,255,0.4)';
+    ctx.beginPath();
+    ctx.arc(x - 2, y - 2, 2, 0, Math.PI * 2);
+    ctx.fill();
     ctx.strokeStyle = '#39ff88';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.moveTo(this.fruit.x, this.fruit.y + bob - 5);
-    ctx.lineTo(this.fruit.x + 4, this.fruit.y + bob - 10);
+    ctx.moveTo(x, y - 5);
+    ctx.quadraticCurveTo(x + 2, y - 9, x + 5, y - 10);
     ctx.stroke();
     ctx.restore();
   }
@@ -819,16 +898,26 @@ export default class Chomp extends BaseGame {
     const angleOf = { right: 0, down: Math.PI / 2, left: Math.PI, up: -Math.PI / 2 };
     const facing = angleOf[this.pac.dir] ?? 0;
     const open = (Math.abs(Math.sin(this.pac.mouth)) * 0.28 + 0.03) * Math.PI;
+    // Swells briefly after a power pellet, eased back down in update.
+    const ease = this.pac.pulse * this.pac.pulse;
+    const r = TILE * 0.46 * (1 + ease * 0.22);
 
     ctx.save();
     ctx.translate(this.pac.x, this.pac.y);
     ctx.rotate(facing);
     ctx.shadowColor = '#ffd23f';
-    ctx.shadowBlur = 16;
+    ctx.shadowBlur = 16 + ease * 10;
     ctx.fillStyle = '#ffd23f';
     ctx.beginPath();
     ctx.moveTo(0, 0);
-    ctx.arc(0, 0, TILE * 0.46, open, Math.PI * 2 - open);
+    ctx.arc(0, 0, r, open, Math.PI * 2 - open);
+    ctx.closePath();
+    ctx.fill();
+    // A warmer core so the disc reads as lit from within, not flat.
+    ctx.fillStyle = 'rgba(255,255,255,0.22)';
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.arc(0, 0, r * 0.55, open, Math.PI * 2 - open);
     ctx.closePath();
     ctx.fill();
     ctx.restore();
@@ -866,6 +955,12 @@ export default class Chomp extends BaseGame {
       }
       ctx.lineTo(x - r, y + r * 0.72);
       ctx.closePath();
+      ctx.fill();
+      // A soft sheen along the dome, so the body has a hint of volume.
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = 'rgba(255,255,255,0.16)';
+      ctx.beginPath();
+      ctx.ellipse(x - r * 0.3, y - r * 0.55, r * 0.42, r * 0.24, -0.5, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
     }

@@ -75,6 +75,13 @@ export default class LightsOut extends BaseGame {
 
     this.lights = Array(this.n * this.n).fill(false);
 
+    // A size change mid-break must not leave the old countdown running — it
+    // regenerated the fresh board a second time the moment it expired. Stale
+    // flashes from the last puzzle have no business pulsing on this one either.
+    this.breakTimer = 0;
+    this.flash?.clear();
+    this.tiles = null;
+
     // Press random cells from a solved board. Solvable by construction.
     const pressed = new Set();
     const count = def.presses + Math.min(6, Math.floor(this.puzzleNo / 2));
@@ -127,7 +134,10 @@ export default class LightsOut extends BaseGame {
     this.solved = true;
     const underPar = Math.max(0, this.par - this.moves);
     const bonus = 600 + underPar * 300 + Math.max(0, 120 - Math.round(this.elapsed) * 2) * 4;
-    this.addScore(bonus);
+    const cx = W / 2;
+    const cy = this.boardY + this.boardW / 2;
+    this.addScore(bonus, { x: cx, y: cy - 20, color: '#fbbf24' });
+    this.particles.emit(cx, cy, { count: 42, speed: 240, color: '#fbbf24', life: 0.8, size: 3 });
     this.banner(this.moves <= this.par ? 'Par or better!' : 'Lights out');
     this.play('highscore');
     this.puzzleNo++;
@@ -179,6 +189,11 @@ export default class LightsOut extends BaseGame {
 
     this.#press(row * this.n + col);
     this.moves++;
+    this.particles.emit(
+      this.boardX + col * this.cell + this.cell / 2,
+      this.boardY + row * this.cell + this.cell / 2,
+      { count: 5, speed: 60, color: '#fbbf24', life: 0.3, size: 2 },
+    );
     this.play('toggle');
     this.tone(280 + this.#remaining() * 18, { dur: 0.07, gain: 0.1, type: 'square' });
 
@@ -187,44 +202,100 @@ export default class LightsOut extends BaseGame {
 
   /* ================================================================= draw */
 
+  /**
+   * The two cell faces with the glow baked in. A board of lit cells used to
+   * be thirty-odd shadowBlur fills every frame; now it is thirty drawImages.
+   */
+  #tileSprites() {
+    if (this.tiles) return this.tiles;
+    const dpr = Math.min(2, this.host.dpr || 1);
+    const pad = 14; // room for the baked glow to bleed
+    const size = this.cell + pad * 2;
+    const inset = 5;
+    const span = this.cell - inset * 2;
+    const make = (paint) => {
+      const c = document.createElement('canvas');
+      c.width = Math.round(size * dpr);
+      c.height = Math.round(size * dpr);
+      const g = c.getContext('2d');
+      g.scale(dpr, dpr);
+      paint(g);
+      return c;
+    };
+    this.tiles = {
+      pad,
+      off: make((g) => {
+        const grad = g.createLinearGradient(0, pad, 0, pad + this.cell);
+        grad.addColorStop(0, '#1a2233');
+        grad.addColorStop(1, '#121826');
+        g.fillStyle = grad;
+        this.roundRect(g, pad + inset, pad + inset, span, span, 10).fill();
+        g.strokeStyle = 'rgba(255,255,255,0.06)';
+        g.lineWidth = 1;
+        this.roundRect(g, pad + inset, pad + inset, span, span, 10).stroke();
+      }),
+      lit: make((g) => {
+        g.shadowColor = '#fbbf24';
+        g.shadowBlur = 20;
+        const mid = pad + this.cell / 2;
+        const grad = g.createRadialGradient(mid, mid - span * 0.12, span * 0.08, mid, mid, span * 0.72);
+        grad.addColorStop(0, '#ffe9a8');
+        grad.addColorStop(0.55, '#fbbf24');
+        grad.addColorStop(1, '#d98a06');
+        g.fillStyle = grad;
+        this.roundRect(g, pad + inset, pad + inset, span, span, 10).fill();
+        g.shadowBlur = 0;
+        g.strokeStyle = 'rgba(255,255,255,0.4)';
+        g.lineWidth = 1;
+        g.beginPath();
+        g.moveTo(pad + inset + 8, pad + inset + 1.5);
+        g.lineTo(pad + inset + span - 8, pad + inset + 1.5);
+        g.stroke();
+      }),
+    };
+    return this.tiles;
+  }
+
   draw(ctx) {
     this.clear(ctx, '#06080f');
     ctx.save();
     this.shake.apply(ctx);
 
+    // A quiet pool of light behind the board.
+    const bg = ctx.createRadialGradient(W / 2, this.boardY + this.boardW / 2, this.boardW * 0.2,
+      W / 2, this.boardY + this.boardW / 2, this.boardW * 0.85);
+    bg.addColorStop(0, 'rgba(251,191,36,0.045)');
+    bg.addColorStop(1, 'rgba(251,191,36,0)');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+
     this.#drawHeader(ctx);
 
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,255,255,0.02)';
+    this.roundRect(ctx, this.boardX - 12, this.boardY - 12, this.boardW + 24, this.boardW + 24, 14).fill();
+    ctx.strokeStyle = 'rgba(251,191,36,0.14)';
+    ctx.lineWidth = 1;
+    this.roundRect(ctx, this.boardX - 12, this.boardY - 12, this.boardW + 24, this.boardW + 24, 14).stroke();
+    ctx.restore();
+
+    const tiles = this.#tileSprites();
     for (let i = 0; i < this.n * this.n; i++) {
       const x = this.boardX + (i % this.n) * this.cell;
       const y = this.boardY + ((i / this.n) | 0) * this.cell;
       const on = this.lights[i];
-      const pad = 5;
+      const sprite = on ? tiles.lit : tiles.off;
+      ctx.drawImage(sprite, x - tiles.pad, y - tiles.pad, this.cell + tiles.pad * 2, this.cell + tiles.pad * 2);
+
+      // A soft rim pulse on every cell a press just toggled, lit or not.
       const flash = this.flash?.get(i);
-
-      ctx.save();
-      if (on) {
-        const pulse = flash != null ? 1 - flash / 0.3 : 0;
-        ctx.fillStyle = '#fbbf24';
-        ctx.shadowColor = '#fbbf24';
-        ctx.shadowBlur = 18 + pulse * 22;
-      } else {
-        ctx.fillStyle = '#161d2b';
-      }
-      this.roundRect(ctx, x + pad, y + pad, this.cell - pad * 2, this.cell - pad * 2, 10).fill();
-      ctx.restore();
-
-      if (!on) {
+      if (flash != null) {
+        const t = 1 - flash / 0.3;
         ctx.save();
-        ctx.strokeStyle = 'rgba(255,255,255,0.06)';
-        ctx.lineWidth = 1;
-        this.roundRect(ctx, x + pad, y + pad, this.cell - pad * 2, this.cell - pad * 2, 10).stroke();
-        ctx.restore();
-      } else {
-        // A darker core, so a lit cell reads as a bulb rather than a blob.
-        ctx.save();
-        ctx.globalAlpha = 0.22;
-        ctx.fillStyle = '#7c4a03';
-        this.roundRect(ctx, x + this.cell * 0.3, y + this.cell * 0.3, this.cell * 0.4, this.cell * 0.4, 6).fill();
+        ctx.globalAlpha = t * t * 0.4;
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2;
+        this.roundRect(ctx, x + 5, y + 5, this.cell - 10, this.cell - 10, 10).stroke();
         ctx.restore();
       }
     }

@@ -71,10 +71,60 @@ export default class Bastion extends BaseGame {
     this.stateTimer = 1.6;
     this.finished = false;
 
+    this.backdrop = null;
     this.setLives(CITY_COUNT);
     this.host.setSecondary(0);
     this.banner('Defend');
     this.play('ready');
+  }
+
+  /**
+   * The night behind the war — sky, stars, horizon glow and the ground slab —
+   * painted once. Nothing in it ever changes, and the gradients are not worth
+   * rebuilding sixty times a second.
+   */
+  #backdropLayer() {
+    if (this.backdrop) return this.backdrop;
+    const dpr = Math.min(2, this.host.dpr || 1);
+    const c = document.createElement('canvas');
+    c.width = Math.round(W * dpr);
+    c.height = Math.round(H * dpr);
+    const g = c.getContext('2d');
+    g.scale(dpr, dpr);
+
+    const sky = g.createLinearGradient(0, 0, 0, GROUND_Y);
+    sky.addColorStop(0, '#04050c');
+    sky.addColorStop(0.65, '#070b18');
+    sky.addColorStop(1, '#0b1220');
+    g.fillStyle = sky;
+    g.fillRect(0, 0, W, GROUND_Y);
+
+    // A sparse, deterministic starfield, dimmer toward the horizon.
+    for (let i = 0; i < 60; i++) {
+      const x = ((i * 9301 + 49297) % 233280) / 233280 * W;
+      const y = ((i * 4931 + 7907) % 233280) / 233280 * (GROUND_Y - 40);
+      const twinkle = ((i * 2711 + 1409) % 97) / 97;
+      g.fillStyle = `rgba(255,255,255,${(0.1 + twinkle * 0.22) * (1 - y / GROUND_Y * 0.5)})`;
+      g.fillRect(x, y, twinkle > 0.8 ? 1.6 : 1.1, twinkle > 0.8 ? 1.6 : 1.1);
+    }
+
+    // The horizon holds a faint light, so the ground reads as lit from below.
+    const horizon = g.createLinearGradient(0, GROUND_Y - 70, 0, GROUND_Y);
+    horizon.addColorStop(0, 'rgba(163,230,53,0)');
+    horizon.addColorStop(1, 'rgba(163,230,53,0.07)');
+    g.fillStyle = horizon;
+    g.fillRect(0, GROUND_Y - 70, W, 70);
+
+    const soil = g.createLinearGradient(0, GROUND_Y, 0, H);
+    soil.addColorStop(0, '#121e13');
+    soil.addColorStop(1, '#0a110b');
+    g.fillStyle = soil;
+    g.fillRect(0, GROUND_Y, W, H - GROUND_Y);
+
+    this.glowLine(g, 0, GROUND_Y, W, GROUND_Y, BATTERY_COLOR, 2, 10);
+
+    this.backdrop = c;
+    return c;
   }
 
   /* ================================================================ waves */
@@ -104,7 +154,8 @@ export default class Bastion extends BaseGame {
   }
 
   #spawnIncoming(fromX = null, fromY = null, speedScale = 1) {
-    const target = this.#targets()[Math.floor(this.random() * this.#targets().length)];
+    const targets = this.#targets();
+    const target = targets[Math.floor(this.random() * targets.length)];
     const x = fromX ?? this.random() * W;
     const y = fromY ?? -10;
     // Aim at the target with a little scatter, so a salvo spreads.
@@ -157,6 +208,9 @@ export default class Bastion extends BaseGame {
       tx, ty,
       vx: Math.cos(angle) * speed,
       vy: Math.sin(angle) * speed,
+    });
+    this.particles.emit(best.x, best.y - 14, {
+      count: 5, speed: 80, angle, spread: 0.8, color: BATTERY_COLOR, life: 0.22, size: 2,
     });
     this.play('laser');
   }
@@ -225,6 +279,9 @@ export default class Bastion extends BaseGame {
 
   #advanceWorld(dt) {
     /* --- incoming --- */
+    // Splits are collected and spawned after the pass — pushing into the
+    // array mid-iteration handed the children a free extra step this tick.
+    const splits = [];
     for (const missile of this.incoming) {
       missile.x += missile.vx * dt;
       missile.y += missile.vy * dt;
@@ -232,13 +289,19 @@ export default class Bastion extends BaseGame {
       // MIRV: one warhead becomes three on the way down.
       if (missile.splitAt !== null && missile.y >= missile.splitAt) {
         missile.splitAt = null;
-        for (let i = 0; i < 2; i++) this.#spawnIncoming(missile.x, missile.y, 1.05);
+        splits.push({ x: missile.x, y: missile.y });
+        this.particles.emit(missile.x, missile.y, {
+          count: 6, speed: 60, color: SMART_COLOR, life: 0.35, size: 2,
+        });
       }
 
       if (missile.y >= GROUND_Y) {
         missile.dead = true;
         this.#impact(missile.x);
       }
+    }
+    for (const split of splits) {
+      for (let i = 0; i < 2; i++) this.#spawnIncoming(split.x, split.y, 1.05);
     }
 
     /* --- our shells --- */
@@ -271,7 +334,9 @@ export default class Bastion extends BaseGame {
         if (missile.dead) continue;
         if (Math.hypot(missile.x - blast.x, missile.y - blast.y) > blast.r) continue;
         missile.dead = true;
-        this.addScore(Math.round((missile.smart ? 60 : 25) * (1 + this.wave * 0.15)));
+        this.addScore(Math.round((missile.smart ? 60 : 25) * (1 + this.wave * 0.15)), {
+          x: missile.x, y: missile.y - 10, color: missile.smart ? SMART_COLOR : '#fbbf24',
+        });
         this.#detonate(missile.x, missile.y, true);
       }
     }
@@ -353,7 +418,7 @@ export default class Bastion extends BaseGame {
     ctx.save();
     this.shake.apply(ctx);
 
-    this.#drawSky(ctx);
+    ctx.drawImage(this.#backdropLayer(), 0, 0, W, H);
     this.#drawTrails(ctx);
     this.#drawGround(ctx);
     this.#drawBlasts(ctx);
@@ -364,25 +429,24 @@ export default class Bastion extends BaseGame {
     ctx.restore();
   }
 
-  #drawSky(ctx) {
-    // A sparse, deterministic starfield.
-    ctx.fillStyle = 'rgba(255,255,255,0.22)';
-    for (let i = 0; i < 46; i++) {
-      const x = ((i * 9301 + 49297) % 233280) / 233280 * W;
-      const y = ((i * 4931 + 7907) % 233280) / 233280 * (GROUND_Y - 40);
-      ctx.fillRect(x, y, 1.2, 1.2);
-    }
-  }
-
   #drawTrails(ctx) {
     ctx.save();
     ctx.lineWidth = 1.5;
     ctx.lineCap = 'round';
 
     for (const missile of this.incoming) {
-      ctx.strokeStyle = missile.smart ? 'rgba(192,132,252,0.5)' : 'rgba(251,113,133,0.45)';
+      ctx.strokeStyle = missile.smart ? 'rgba(192,132,252,0.3)' : 'rgba(251,113,133,0.28)';
       ctx.beginPath();
       ctx.moveTo(missile.startX, missile.startY);
+      ctx.lineTo(missile.x, missile.y);
+      ctx.stroke();
+
+      // The last stretch burns brighter, so the head reads as the danger.
+      const len = Math.hypot(missile.x - missile.startX, missile.y - missile.startY) || 1;
+      const k = Math.min(1, 46 / len);
+      ctx.strokeStyle = missile.smart ? 'rgba(192,132,252,0.8)' : 'rgba(251,113,133,0.75)';
+      ctx.beginPath();
+      ctx.moveTo(missile.x - (missile.x - missile.startX) * k, missile.y - (missile.y - missile.startY) * k);
       ctx.lineTo(missile.x, missile.y);
       ctx.stroke();
 
@@ -416,18 +480,6 @@ export default class Bastion extends BaseGame {
   }
 
   #drawGround(ctx) {
-    ctx.save();
-    ctx.fillStyle = '#101a12';
-    ctx.beginPath();
-    ctx.moveTo(0, GROUND_Y);
-    ctx.lineTo(W, GROUND_Y);
-    ctx.lineTo(W, H);
-    ctx.lineTo(0, H);
-    ctx.closePath();
-    ctx.fill();
-    ctx.restore();
-    this.glowLine(ctx, 0, GROUND_Y, W, GROUND_Y, BATTERY_COLOR, 2, 10);
-
     /* --- cities --- */
     for (const city of this.cities) {
       if (!city.alive) {
@@ -435,6 +487,12 @@ export default class Bastion extends BaseGame {
         ctx.fillStyle = '#2a2f3a';
         for (let i = 0; i < 4; i++) {
           ctx.fillRect(city.x - 16 + i * 9, GROUND_Y - 5, 7, 5);
+        }
+        // An ember or two, while the rubble is still fresh.
+        if (city.rubble > 0) {
+          ctx.fillStyle = `rgba(251,113,133,${Math.min(0.7, city.rubble)})`;
+          ctx.fillRect(city.x - 6, GROUND_Y - 7, 3, 2);
+          ctx.fillRect(city.x + 5, GROUND_Y - 6, 2, 2);
         }
         ctx.restore();
         continue;
@@ -447,6 +505,15 @@ export default class Bastion extends BaseGame {
       const heights = [10, 18, 13, 22, 12];
       heights.forEach((hgt, i) => {
         ctx.fillRect(city.x - 18 + i * 8, GROUND_Y - hgt, 6, hgt);
+      });
+      ctx.shadowBlur = 0;
+      // Lit windows, so the thing being defended looks inhabited.
+      ctx.fillStyle = 'rgba(233,237,246,0.85)';
+      heights.forEach((hgt, i) => {
+        if (hgt < 12) return;
+        const bx = city.x - 18 + i * 8;
+        ctx.fillRect(bx + 1.5, GROUND_Y - hgt + 3, 1.4, 1.8);
+        ctx.fillRect(bx + 3.6, GROUND_Y - hgt + 7, 1.4, 1.8);
       });
       ctx.restore();
     }
@@ -486,16 +553,25 @@ export default class Bastion extends BaseGame {
   }
 
   #drawBlasts(ctx) {
+    // A steady fireball — white core, amber body, soft rim — with no strobe.
     for (const blast of this.blasts) {
-      const t = Math.min(1, blast.r / BLAST_MAX);
+      const r = Math.max(1, blast.r);
       ctx.save();
-      ctx.globalAlpha = 0.55 + Math.sin(performance.now() / 40) * 0.15;
-      ctx.fillStyle = t > 0.7 ? '#fde047' : '#fbbf24';
-      ctx.shadowColor = '#fbbf24';
-      ctx.shadowBlur = 24;
+      ctx.globalAlpha = blast.phase === 'shrink' ? Math.min(0.85, 0.3 + (r / BLAST_MAX) * 0.6) : 0.85;
+      const glow = ctx.createRadialGradient(blast.x, blast.y, 0, blast.x, blast.y, r);
+      glow.addColorStop(0, '#fff7d6');
+      glow.addColorStop(0.45, '#fde047');
+      glow.addColorStop(0.8, '#fbbf24');
+      glow.addColorStop(1, 'rgba(251,191,36,0)');
+      ctx.fillStyle = glow;
       ctx.beginPath();
-      ctx.arc(blast.x, blast.y, Math.max(0, blast.r), 0, Math.PI * 2);
+      ctx.arc(blast.x, blast.y, r, 0, Math.PI * 2);
       ctx.fill();
+      ctx.strokeStyle = 'rgba(253,224,71,0.35)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(blast.x, blast.y, r * 0.92, 0, Math.PI * 2);
+      ctx.stroke();
       ctx.restore();
     }
   }
@@ -506,6 +582,33 @@ export default class Bastion extends BaseGame {
 
     const loaded = this.batteries.some((b) => b.alive && b.ammo > 0);
     const color = loaded && m.y < GROUND_Y - 6 ? BATTERY_COLOR : '#fb7185';
+
+    // A faint tether to the battery that would take this shot, so the game's
+    // one rule — *nearest loaded* — is visible before the shell is spent.
+    if (loaded && m.y < GROUND_Y - 6) {
+      let best = null;
+      let bestDist = Infinity;
+      for (const b of this.batteries) {
+        if (!b.alive || b.ammo <= 0) continue;
+        const d = Math.hypot(b.x - m.x, b.y - m.y);
+        if (d < bestDist) {
+          bestDist = d;
+          best = b;
+        }
+      }
+      if (best) {
+        ctx.save();
+        ctx.strokeStyle = BATTERY_COLOR;
+        ctx.globalAlpha = 0.16;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 7]);
+        ctx.beginPath();
+        ctx.moveTo(best.x, best.y - 14);
+        ctx.lineTo(m.x, m.y);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
 
     ctx.save();
     ctx.strokeStyle = color;
@@ -527,6 +630,13 @@ export default class Bastion extends BaseGame {
   #drawHud(ctx) {
     if (this.state === 'tally' && this.tally) {
       const cx = W / 2;
+      ctx.save();
+      ctx.fillStyle = 'rgba(4,6,10,0.55)';
+      this.roundRect(ctx, cx - 170, GROUND_Y * 0.34 - 26, 340, 96, 12).fill();
+      ctx.strokeStyle = 'rgba(251,191,36,0.25)';
+      ctx.lineWidth = 1;
+      this.roundRect(ctx, cx - 170, GROUND_Y * 0.34 - 26, 340, 96, 12).stroke();
+      ctx.restore();
       this.text(ctx, 'WAVE CLEAR', cx, GROUND_Y * 0.34, { size: 20, color: '#fbbf24', glow: 14 });
       this.text(ctx, `${this.tally.ammo} shells spare  ·  ${this.tally.cities} cities standing`,
         cx, GROUND_Y * 0.34 + 28, { size: 12, color: '#8b93a7' });

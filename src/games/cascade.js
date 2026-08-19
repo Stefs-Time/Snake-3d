@@ -39,6 +39,10 @@ const PLAIN = 0;
 const CHARGED = 1;
 const PRISM = 2;
 
+/** Cached sprites render at 2x so the scaled canvas stays crisp on phones. */
+const SPRITE_SCALE = 2;
+const GEM_PAD = 12;
+
 export default class Cascade extends BaseGame {
   static id = 'cascade';
   static width = W;
@@ -54,7 +58,16 @@ export default class Cascade extends BaseGame {
     this.host.setHint('Swap two neighbours to line up three');
     this.setLives(3);
 
+    this.gemSprites = [];
+    for (let color = 0; color < COLORS.length; color++) {
+      for (const kind of [PLAIN, CHARGED, PRISM]) {
+        this.gemSprites[color * 3 + kind] = this.#makeGemSprite(color, kind);
+      }
+    }
+    this.backdrop = this.#makeBackdrop();
+
     this.level = 1;
+    this.finished = false;
     this.#startLevel();
     this.banner('Match three');
     this.play('ready');
@@ -208,13 +221,21 @@ export default class Cascade extends BaseGame {
 
     this.chain++;
     let cleared = 0;
+    let sumX = 0;
+    let sumY = 0;
     const specials = [];
 
     for (const group of groups) {
+      // An earlier group's specials may already have swept this one away.
+      const sample = group.map((i) => this.grid[i]).find(Boolean);
+      if (!sample) continue;
+
       // A long line leaves something behind at the gem you moved, if it was
-      // part of the line, and otherwise at the middle of it.
-      if (group.length >= 5) specials.push({ index: this.#anchorFor(group), kind: PRISM, color: this.grid[group[0]].color });
-      else if (group.length === 4) specials.push({ index: this.#anchorFor(group), kind: CHARGED, color: this.grid[group[0]].color });
+      // part of the line, and otherwise at the middle of it. The length that
+      // matters is the straight run — an L of three and three is not a five.
+      const run = this.#longestRun(group);
+      if (run >= 5) specials.push({ index: this.#anchorFor(group), kind: PRISM, color: sample.color });
+      else if (run === 4) specials.push({ index: this.#anchorFor(group), kind: CHARGED, color: sample.color });
 
       const full = this.#expand(group);
       for (const index of full) {
@@ -225,14 +246,19 @@ export default class Cascade extends BaseGame {
         });
         this.grid[index] = null;
         cleared++;
+        sumX += x + CELL / 2;
+        sumY += y + CELL / 2;
       }
     }
 
     // The multiplier is the whole reason to look for cascades.
     const multiplier = 1 + (this.chain - 1) * 0.6;
-    const points = Math.round((cleared * 45 + (cleared - 3) * 30) * multiplier);
-    this.addScore(Math.max(30, points));
-    this.levelScore += Math.max(30, points);
+    const points = Math.max(30, Math.round((cleared * 45 + (cleared - 3) * 30) * multiplier));
+    this.addScore(points);
+    this.levelScore += points;
+    if (cleared) {
+      this.popups.add(sumX / cleared, sumY / cleared, `+${points}`, this.chain > 1 ? '#fbbf24' : '#e9edf6', 15);
+    }
 
     for (const { index, kind, color } of specials) {
       if (this.grid[index]) continue;
@@ -248,10 +274,33 @@ export default class Cascade extends BaseGame {
     return true;
   }
 
-  /** Where a special should land: the swapped gem if it is in the group. */
+  /** Where a special should land: either swapped gem if it is in the group. */
   #anchorFor(group) {
-    if (this.lastSwap != null && group.includes(this.lastSwap)) return this.lastSwap;
+    for (const index of this.lastSwap ?? []) {
+      if (group.includes(index)) return index;
+    }
     return group[Math.floor(group.length / 2)];
+  }
+
+  /** The longest straight run inside a group of matched cells. */
+  #longestRun(group) {
+    const set = new Set(group);
+    let best = 1;
+    for (const index of set) {
+      const r = (index / N) | 0;
+      const c = index % N;
+      if (c === 0 || !set.has(index - 1)) {
+        let len = 1;
+        while (c + len < N && set.has(index + len)) len++;
+        best = Math.max(best, len);
+      }
+      if (r === 0 || !set.has(index - N)) {
+        let len = 1;
+        while (r + len < N && set.has(index + len * N)) len++;
+        best = Math.max(best, len);
+      }
+    }
+    return best;
   }
 
   /** Drop everything into the holes and refill from the top. */
@@ -264,14 +313,15 @@ export default class Cascade extends BaseGame {
         if (write !== r) {
           this.grid[write * N + c] = gem;
           this.grid[r * N + c] = null;
-          gem.y = write - r; // start visually where it came from
+          gem.y = r - write; // start visually where it came from
         }
         write--;
       }
-      // Everything above the write head is new, falling in from off-board.
+      // Everything above the write head is new, falling in from off-board —
+      // a shared offset keeps them stacked in a column above the edge.
       for (let r = write; r >= 0; r--) {
         const gem = this.#newGem();
-        gem.y = -(r + 1.5);
+        gem.y = -(write + 1.5);
         this.grid[r * N + c] = gem;
       }
     }
@@ -416,7 +466,7 @@ export default class Cascade extends BaseGame {
 
     const a = this.selected;
     this.selected = null;
-    this.lastSwap = index;
+    this.lastSwap = [index, a];
     [this.grid[a], this.grid[index]] = [this.grid[index], this.grid[a]];
     this.swap = { a, b: index, t: 0, undo: false };
     this.state = 'swapping';
@@ -434,8 +484,7 @@ export default class Cascade extends BaseGame {
     ctx.save();
     this.shake.apply(ctx);
 
-    ctx.fillStyle = 'rgba(255,255,255,0.025)';
-    this.roundRect(ctx, BOARD_X - 6, BOARD_Y - 6, BOARD + 12, BOARD + 12, 12).fill();
+    ctx.drawImage(this.backdrop, 0, 0, W, H);
 
     // Clip to the board so gems falling in from above appear at the edge.
     ctx.save();
@@ -469,12 +518,6 @@ export default class Cascade extends BaseGame {
   }
 
   #drawGem(ctx, x, y, gem, selected) {
-    const color = COLORS[gem.color];
-    const shape = SHAPES[gem.color];
-    const cx = x + CELL / 2;
-    const cy = y + CELL / 2;
-    const r = CELL * 0.33 * (1 + gem.pop * 0.25);
-
     if (selected) {
       ctx.save();
       ctx.strokeStyle = '#ffffff';
@@ -484,26 +527,27 @@ export default class Cascade extends BaseGame {
       ctx.restore();
     }
 
-    ctx.save();
-    ctx.fillStyle = color;
-    ctx.shadowColor = color;
-    ctx.shadowBlur = gem.kind === PLAIN ? 10 : 20;
-    ctx.beginPath();
+    const sprite = this.gemSprites[gem.color * 3 + gem.kind];
+    const scale = 1 + gem.pop * 0.25;
+    const size = (CELL + GEM_PAD * 2) * scale;
+    ctx.drawImage(sprite, x + CELL / 2 - size / 2, y + CELL / 2 - size / 2, size, size);
+  }
 
+  #traceShape(g, cx, cy, r, shape) {
     const poly = (n, rotate) => {
       for (let i = 0; i < n; i++) {
         const a = rotate + (i / n) * Math.PI * 2;
         const px = cx + Math.cos(a) * r;
         const py = cy + Math.sin(a) * r;
-        i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+        i ? g.lineTo(px, py) : g.moveTo(px, py);
       }
-      ctx.closePath();
+      g.closePath();
     };
 
     switch (shape) {
-      case 'circle': ctx.arc(cx, cy, r, 0, Math.PI * 2); break;
+      case 'circle': g.arc(cx, cy, r, 0, Math.PI * 2); break;
       case 'diamond': poly(4, -Math.PI / 2); break;
-      case 'square': ctx.rect(cx - r * 0.86, cy - r * 0.86, r * 1.72, r * 1.72); break;
+      case 'square': g.rect(cx - r * 0.86, cy - r * 0.86, r * 1.72, r * 1.72); break;
       case 'triangle': poly(3, -Math.PI / 2); break;
       case 'hexagon': poly(6, -Math.PI / 2); break;
       default: {
@@ -512,35 +556,134 @@ export default class Cascade extends BaseGame {
           const rad = i % 2 === 0 ? r : r * 0.46;
           const px = cx + Math.cos(a) * rad;
           const py = cy + Math.sin(a) * rad;
-          i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+          i ? g.lineTo(px, py) : g.moveTo(px, py);
         }
-        ctx.closePath();
+        g.closePath();
       }
     }
-    ctx.fill();
-    ctx.restore();
+  }
+
+  /** One gem, glow and facets baked, so draw() never touches shadowBlur. */
+  #makeGemSprite(colorIndex, kind) {
+    const s = SPRITE_SCALE;
+    const span = CELL + GEM_PAD * 2;
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = span * s;
+    const g = canvas.getContext('2d');
+    g.scale(s, s);
+
+    const color = COLORS[colorIndex];
+    const cx = span / 2;
+    const cy = span / 2;
+    const r = CELL * 0.33;
+
+    g.fillStyle = color;
+    g.shadowColor = color;
+    g.shadowBlur = kind === PLAIN ? 10 : 20;
+    g.beginPath();
+    this.#traceShape(g, cx, cy, r, SHAPES[colorIndex]);
+    g.fill();
+    g.shadowBlur = 0;
+
+    // A cool light from the upper left gives the gem a facet.
+    const facet = g.createRadialGradient(cx - r * 0.35, cy - r * 0.45, r * 0.1, cx, cy, r * 1.15);
+    facet.addColorStop(0, 'rgba(255,255,255,0.55)');
+    facet.addColorStop(0.5, 'rgba(255,255,255,0.06)');
+    facet.addColorStop(1, 'rgba(0,0,0,0.3)');
+    g.fillStyle = facet;
+    g.beginPath();
+    this.#traceShape(g, cx, cy, r, SHAPES[colorIndex]);
+    g.fill();
 
     // Specials are marked so you can see what you built.
-    if (gem.kind === CHARGED) {
-      ctx.save();
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(cx - r * 0.7, cy);
-      ctx.lineTo(cx + r * 0.7, cy);
-      ctx.moveTo(cx, cy - r * 0.7);
-      ctx.lineTo(cx, cy + r * 0.7);
-      ctx.stroke();
-      ctx.restore();
-    } else if (gem.kind === PRISM) {
-      ctx.save();
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(cx, cy, r * 0.5, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.restore();
+    if (kind !== PLAIN) {
+      g.strokeStyle = '#ffffff';
+      g.lineWidth = 2;
+      g.beginPath();
+      if (kind === CHARGED) {
+        g.moveTo(cx - r * 0.7, cy);
+        g.lineTo(cx + r * 0.7, cy);
+        g.moveTo(cx, cy - r * 0.7);
+        g.lineTo(cx, cy + r * 0.7);
+      } else {
+        g.arc(cx, cy, r * 0.5, 0, Math.PI * 2);
+      }
+      g.stroke();
     }
+    return canvas;
+  }
+
+  /** Every static pixel — wash, board well, checkering, frame, legend. */
+  #makeBackdrop() {
+    const s = SPRITE_SCALE;
+    const canvas = document.createElement('canvas');
+    canvas.width = W * s;
+    canvas.height = H * s;
+    const g = canvas.getContext('2d');
+    g.scale(s, s);
+
+    g.fillStyle = '#080711';
+    g.fillRect(0, 0, W, H);
+    const wash = g.createRadialGradient(
+      BOARD_X + BOARD / 2, BOARD_Y + BOARD / 2, BOARD * 0.2,
+      BOARD_X + BOARD / 2, BOARD_Y + BOARD / 2, BOARD * 0.95,
+    );
+    wash.addColorStop(0, 'rgba(192,132,252,0.07)');
+    wash.addColorStop(1, 'rgba(192,132,252,0)');
+    g.fillStyle = wash;
+    g.fillRect(0, 0, W, H);
+
+    const well = g.createLinearGradient(0, BOARD_Y, 0, BOARD_Y + BOARD);
+    well.addColorStop(0, 'rgba(255,255,255,0.045)');
+    well.addColorStop(1, 'rgba(255,255,255,0.015)');
+    g.fillStyle = well;
+    this.roundRect(g, BOARD_X - 6, BOARD_Y - 6, BOARD + 12, BOARD + 12, 12).fill();
+
+    g.fillStyle = 'rgba(255,255,255,0.02)';
+    for (let r = 0; r < N; r++) {
+      for (let c = 0; c < N; c++) {
+        if ((r + c) % 2 === 0) continue;
+        g.fillRect(BOARD_X + c * CELL, BOARD_Y + r * CELL, CELL, CELL);
+      }
+    }
+
+    g.strokeStyle = 'rgba(192,132,252,0.3)';
+    g.shadowColor = '#c084fc';
+    g.shadowBlur = 12;
+    g.lineWidth = 1.5;
+    this.roundRect(g, BOARD_X - 6.5, BOARD_Y - 6.5, BOARD + 13, BOARD + 13, 12).stroke();
+    g.shadowBlur = 0;
+
+    /* --- what the specials do --- */
+    const legend = (y, kind, label) => {
+      const cx = PANEL_X + 12;
+      g.save();
+      g.fillStyle = '#c084fc';
+      g.shadowColor = '#c084fc';
+      g.shadowBlur = 10;
+      g.beginPath();
+      g.arc(cx, y, 9, 0, Math.PI * 2);
+      g.fill();
+      g.shadowBlur = 0;
+      g.strokeStyle = '#ffffff';
+      g.lineWidth = 1.6;
+      g.beginPath();
+      if (kind === CHARGED) {
+        g.moveTo(cx - 6, y);
+        g.lineTo(cx + 6, y);
+        g.moveTo(cx, y - 6);
+        g.lineTo(cx, y + 6);
+      } else {
+        g.arc(cx, y, 4.5, 0, Math.PI * 2);
+      }
+      g.stroke();
+      g.restore();
+      this.text(g, label, PANEL_X + 28, y, { size: 9.5, color: '#5c6478', align: 'left', weight: 500 });
+    };
+
+    legend(BOARD_Y + 216, CHARGED, 'Four: clears a row');
+    legend(BOARD_Y + 248, PRISM, 'Five: clears a colour');
+    return canvas;
   }
 
   #drawPanel(ctx) {
@@ -576,34 +719,5 @@ export default class Cascade extends BaseGame {
         size: 14, color: '#fbbf24', align: 'left', glow: 10,
       });
     }
-
-    /* --- what the specials do --- */
-    const legend = (y, kind, label) => {
-      const cx = PANEL_X + 12;
-      ctx.save();
-      ctx.fillStyle = '#c084fc';
-      ctx.shadowColor = '#c084fc';
-      ctx.shadowBlur = 10;
-      ctx.beginPath();
-      ctx.arc(cx, y, 9, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 1.6;
-      ctx.beginPath();
-      if (kind === CHARGED) {
-        ctx.moveTo(cx - 6, y);
-        ctx.lineTo(cx + 6, y);
-        ctx.moveTo(cx, y - 6);
-        ctx.lineTo(cx, y + 6);
-      } else {
-        ctx.arc(cx, y, 4.5, 0, Math.PI * 2);
-      }
-      ctx.stroke();
-      ctx.restore();
-      this.text(ctx, label, PANEL_X + 28, y, { size: 9.5, color: '#5c6478', align: 'left', weight: 500 });
-    };
-
-    legend(BOARD_Y + 216, CHARGED, 'Four: clears a row');
-    legend(BOARD_Y + 248, PRISM, 'Five: clears a colour');
   }
 }

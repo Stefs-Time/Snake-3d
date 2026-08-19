@@ -27,6 +27,21 @@ const KEYBOARD_Y = 336;
 const GALLOWS_X = 108;
 const GALLOWS_Y = 52;
 
+/** How long one figure segment takes to stroke itself in. */
+const STROKE_TIME = 0.35;
+
+/** Mix a hex colour toward white (t > 0) or black (t < 0). */
+function shade(hex, t) {
+  const n = parseInt(hex.slice(1), 16);
+  const to = t < 0 ? 0 : 255;
+  const k = Math.abs(t);
+  const ch = (v) => Math.round(v + (to - v) * k);
+  const r = ch(n >> 16);
+  const g = ch((n >> 8) & 255);
+  const b = ch(n & 255);
+  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
+}
+
 export default class Hangman extends BaseGame {
   static id = 'hangman';
   static width = W;
@@ -45,6 +60,10 @@ export default class Hangman extends BaseGame {
 
     this.solved = 0;
     this.streak = 0;
+    this.finished = false;
+    // Gradients and glows are baked into sprites once, not painted per frame.
+    this.layers = new Map();
+    this.keys = KEY_ROWS.map((_, r) => this.#rowLayout(r));
     this.pool = HANGMAN_CATEGORIES.flatMap((cat) =>
       cat.words.map((word) => ({ word, category: cat.name })),
     );
@@ -52,6 +71,10 @@ export default class Hangman extends BaseGame {
 
     this.banner('Six guesses');
     this.play('ready');
+  }
+
+  resize() {
+    this.layers?.clear();
   }
 
   #newWord() {
@@ -72,6 +95,15 @@ export default class Hangman extends BaseGame {
     this.roundOver = null;
     this.nextTimer = 0;
     this.revealTimer = 0;
+    this.strokeFrom = 0;
+    this.strokeT = 1;
+    this.hitLetter = '';
+    this.hitPop = 0;
+  }
+
+  /** Where a given stage of the figure sits on the six-stage scale. */
+  #stageShown(wrong) {
+    return Math.ceil((wrong / this.allowance) * MAX_WRONG);
   }
 
   #guess(letter) {
@@ -80,12 +112,21 @@ export default class Hangman extends BaseGame {
 
     if (this.answer.includes(letter)) {
       const hits = [...this.answer].filter((c) => c === letter).length;
-      this.addScore(25 * hits);
+      const first = this.answer.indexOf(letter);
+      this.addScore(25 * hits, {
+        x: 300 + first * Math.min(38, (W - 330) / this.answer.length) + 14,
+        y: GALLOWS_Y + 78,
+        color: '#4ade80',
+      });
+      this.hitLetter = letter;
+      this.hitPop = 0.3;
       this.play('select');
       this.#checkSolved();
       return;
     }
 
+    this.strokeFrom = this.#stageShown(this.wrong);
+    this.strokeT = 0;
     this.wrong++;
     this.play('hit');
     this.shake.add(4);
@@ -104,8 +145,14 @@ export default class Hangman extends BaseGame {
 
     const spare = this.allowance - this.wrong;
     const points = 300 + this.answer.length * 60 + spare * 120 + this.streak * 80;
-    this.addScore(points);
+    this.addScore(points, { x: 300 + 80, y: GALLOWS_Y + 84, color: '#4ade80' });
     this.banner(spare === this.allowance ? 'Flawless!' : 'Got it');
+    const slot = Math.min(38, (W - 330) / this.answer.length);
+    for (let i = 0; i < this.answer.length; i++) {
+      this.particles.emit(300 + i * slot + slot / 2, GALLOWS_Y + 104, {
+        count: 5, speed: 100, color: '#4ade80', life: 0.7, size: 2.6, shape: 'circle',
+      });
+    }
     this.play('highscore');
     this.roundOver = 'won';
     this.nextTimer = 1.6;
@@ -129,6 +176,9 @@ export default class Hangman extends BaseGame {
   update(dt) {
     this.updateEffects(dt);
     if (this.over) return;
+
+    if (this.strokeT < 1) this.strokeT = Math.min(1, this.strokeT + dt / STROKE_TIME);
+    if (this.hitPop > 0) this.hitPop -= dt;
 
     if (this.roundOver) {
       this.revealTimer += dt;
@@ -168,12 +218,93 @@ export default class Hangman extends BaseGame {
   }
 
   #keyAt(px, py) {
-    for (let r = 0; r < KEY_ROWS.length; r++) {
-      for (const key of this.#rowLayout(r)) {
+    for (const row of this.keys) {
+      for (const key of row) {
         if (this.hits(px, py, key.x, key.y, key.w, key.h)) return key.label;
       }
     }
     return null;
+  }
+
+  /* ============================================================= sprites */
+
+  /** Fetch-or-paint an offscreen layer, rendered once at device resolution. */
+  #layer(key, w, h, paint) {
+    let c = this.layers.get(key);
+    if (c) return c;
+    const dpr = Math.min(2, this.host.dpr || 1);
+    c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(w * dpr));
+    c.height = Math.max(1, Math.round(h * dpr));
+    const g = c.getContext('2d');
+    g.scale(dpr, dpr);
+    paint(g);
+    this.layers.set(key, c);
+    return c;
+  }
+
+  #keySprite(state, w) {
+    return this.#layer(`key:${state}:${Math.round(w)}`, w, KEY_H, (g) => {
+      const base = state === 'hit' ? '#1c4a2c' : state === 'miss' ? '#141926' : '#232b3b';
+      if (state === 'hit') {
+        g.shadowColor = 'rgba(74,222,128,0.7)';
+        g.shadowBlur = 9;
+      }
+      const grad = g.createLinearGradient(0, 0, 0, KEY_H);
+      grad.addColorStop(0, shade(base, state === 'miss' ? 0.03 : 0.12));
+      grad.addColorStop(1, shade(base, -0.2));
+      g.fillStyle = grad;
+      this.roundRect(g, 0, 0, w, KEY_H, 7).fill();
+      g.shadowBlur = 0;
+      g.strokeStyle = state === 'hit' ? 'rgba(74,222,128,0.7)' : 'rgba(255,255,255,0.08)';
+      g.lineWidth = 1.2;
+      this.roundRect(g, 0.75, 0.75, w - 1.5, KEY_H - 1.5, 7).stroke();
+      if (state !== 'miss') {
+        g.strokeStyle = 'rgba(255,255,255,0.10)';
+        g.lineWidth = 1;
+        g.beginPath();
+        g.moveTo(5, 1.5);
+        g.lineTo(w - 5, 1.5);
+        g.stroke();
+      }
+    });
+  }
+
+  /** Wells and the gallows frame — none of it ever moves. */
+  #backdrop() {
+    return this.#layer('backdrop', W, H, (g) => {
+      const well = (x, y, w, h) => {
+        const grad = g.createLinearGradient(0, y, 0, y + h);
+        grad.addColorStop(0, 'rgba(255,255,255,0.030)');
+        grad.addColorStop(1, 'rgba(255,255,255,0.008)');
+        g.fillStyle = grad;
+        this.roundRect(g, x, y, w, h, 14).fill();
+        g.strokeStyle = 'rgba(255,255,255,0.07)';
+        g.lineWidth = 1;
+        this.roundRect(g, x + 0.5, y + 0.5, w - 1, h - 1, 14).stroke();
+      };
+      well(16, GALLOWS_Y - 34, 250, 254);
+      well(282, GALLOWS_Y - 34, W - 298, 254);
+      const kbH = KEY_ROWS.length * (KEY_H + KEY_GAP) - KEY_GAP;
+      well(16, KEYBOARD_Y - 10, W - 32, kbH + 20);
+
+      const x = GALLOWS_X;
+      const y = GALLOWS_Y;
+      const wood = g.createLinearGradient(0, y, 0, y + 200);
+      wood.addColorStop(0, '#4a5670');
+      wood.addColorStop(1, '#333d52');
+      g.strokeStyle = wood;
+      g.lineWidth = 6;
+      g.lineCap = 'round';
+      g.beginPath();
+      g.moveTo(x - 54, y + 200);
+      g.lineTo(x + 30, y + 200); // base
+      g.moveTo(x - 12, y + 200);
+      g.lineTo(x - 12, y); // post
+      g.lineTo(x + 58, y); // beam
+      g.lineTo(x + 58, y + 26); // rope
+      g.stroke();
+    });
   }
 
   /* ================================================================= draw */
@@ -183,7 +314,8 @@ export default class Hangman extends BaseGame {
     ctx.save();
     this.shake.apply(ctx);
 
-    this.#drawGallows(ctx);
+    ctx.drawImage(this.#backdrop(), 0, 0, W, H);
+    this.#drawFigure(ctx);
     this.#drawWord(ctx);
     this.#drawKeyboard(ctx);
     this.drawEffects(ctx);
@@ -192,32 +324,17 @@ export default class Hangman extends BaseGame {
   }
 
   /**
-   * The rope is drawn in stages, one per wrong guess. When the allowance is
-   * shorter than six the later stages are skipped, so a tighter game still
+   * The figure is drawn in stages, one per wrong guess, and each new segment
+   * strokes itself in rather than appearing fully formed. When the allowance
+   * is shorter than six the later stages are skipped, so a tighter game still
    * ends with a completed figure.
    */
-  #drawGallows(ctx) {
-    const x = GALLOWS_X;
-    const y = GALLOWS_Y;
-
-    ctx.save();
-    ctx.strokeStyle = '#3f4a5f';
-    ctx.lineWidth = 6;
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(x - 54, y + 200);
-    ctx.lineTo(x + 30, y + 200); // base
-    ctx.moveTo(x - 12, y + 200);
-    ctx.lineTo(x - 12, y); // post
-    ctx.lineTo(x + 58, y); // beam
-    ctx.lineTo(x + 58, y + 26); // rope
-    ctx.stroke();
-    ctx.restore();
-
+  #drawFigure(ctx) {
     const lost = this.roundOver === 'lost';
     const color = lost ? '#fb7185' : '#e9edf6';
     // Map the allowance onto the six stages so a shorter rope still completes.
-    const shown = Math.ceil((this.wrong / this.allowance) * MAX_WRONG);
+    const shown = this.#stageShown(this.wrong);
+    if (shown <= 0) return;
 
     ctx.save();
     ctx.strokeStyle = color;
@@ -226,41 +343,36 @@ export default class Hangman extends BaseGame {
     ctx.lineWidth = 4;
     ctx.lineCap = 'round';
 
-    const head = { x: x + 58, y: y + 48 };
-    if (shown >= 1) {
+    const hx = GALLOWS_X + 58;
+    const hy = GALLOWS_Y + 48;
+    const lerpLine = (x1, y1, x2, y2, t) => {
       ctx.beginPath();
-      ctx.arc(head.x, head.y, 22, 0, Math.PI * 2);
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x1 + (x2 - x1) * t, y1 + (y2 - y1) * t);
       ctx.stroke();
-    }
-    if (shown >= 2) {
-      ctx.beginPath();
-      ctx.moveTo(head.x, head.y + 22);
-      ctx.lineTo(head.x, head.y + 92);
-      ctx.stroke();
-    }
-    if (shown >= 3) {
-      ctx.beginPath();
-      ctx.moveTo(head.x, head.y + 40);
-      ctx.lineTo(head.x - 34, head.y + 68);
-      ctx.stroke();
-    }
-    if (shown >= 4) {
-      ctx.beginPath();
-      ctx.moveTo(head.x, head.y + 40);
-      ctx.lineTo(head.x + 34, head.y + 68);
-      ctx.stroke();
-    }
-    if (shown >= 5) {
-      ctx.beginPath();
-      ctx.moveTo(head.x, head.y + 92);
-      ctx.lineTo(head.x - 30, head.y + 140);
-      ctx.stroke();
-    }
-    if (shown >= 6) {
-      ctx.beginPath();
-      ctx.moveTo(head.x, head.y + 92);
-      ctx.lineTo(head.x + 30, head.y + 140);
-      ctx.stroke();
+    };
+    const segments = [
+      (t) => { // head
+        ctx.beginPath();
+        ctx.arc(hx, hy, 22, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * t);
+        ctx.stroke();
+      },
+      (t) => lerpLine(hx, hy + 22, hx, hy + 92, t), // body
+      (t) => lerpLine(hx, hy + 40, hx - 34, hy + 68, t), // left arm
+      (t) => lerpLine(hx, hy + 40, hx + 34, hy + 68, t), // right arm
+      (t) => lerpLine(hx, hy + 92, hx - 30, hy + 140, t), // left leg
+      (t) => lerpLine(hx, hy + 92, hx + 30, hy + 140, t), // right leg
+    ];
+
+    // Stages up to strokeFrom are settled; the newer ones sweep in, one after
+    // another when a single miss adds more than one.
+    const fresh = shown - this.strokeFrom;
+    for (let s = 0; s < shown; s++) {
+      let t = 1;
+      if (s >= this.strokeFrom && fresh > 0) {
+        t = Math.max(0, Math.min(1, this.strokeT * fresh - (s - this.strokeFrom)));
+      }
+      if (t > 0) segments[s](t);
     }
     ctx.restore();
   }
@@ -309,8 +421,11 @@ export default class Hangman extends BaseGame {
       ctx.restore();
 
       if (known || reveal) {
+        // A freshly revealed letter lands with a small pop.
+        const pop = known && letter === this.hitLetter && this.hitPop > 0
+          ? 1 + Math.sin((1 - this.hitPop / 0.3) * Math.PI) * 0.18 : 1;
         this.text(ctx, letter, x + (slot - 3) / 2, y - 4, {
-          size: Math.min(30, slot * 0.86),
+          size: Math.min(30, slot * 0.86) * pop,
           color: reveal ? '#fb7185' : '#e9edf6',
           glow: known ? 8 : 0,
         });
@@ -328,22 +443,14 @@ export default class Hangman extends BaseGame {
   }
 
   #drawKeyboard(ctx) {
-    for (let r = 0; r < KEY_ROWS.length; r++) {
-      for (const key of this.#rowLayout(r)) {
+    for (const row of this.keys) {
+      for (const key of row) {
         const used = this.guessed.has(key.label);
         const hit = used && this.answer.includes(key.label);
-
-        ctx.save();
-        ctx.fillStyle = hit ? 'rgba(74,222,128,0.28)' : used ? 'rgba(255,255,255,0.03)' : '#232b3b';
-        this.roundRect(ctx, key.x, key.y, key.w, key.h, 7).fill();
-        if (hit) {
-          ctx.strokeStyle = '#4ade80';
-          ctx.lineWidth = 1.2;
-          this.roundRect(ctx, key.x, key.y, key.w, key.h, 7).stroke();
-        }
-        ctx.restore();
-
-        this.text(ctx, key.label, key.x + key.w / 2, key.y + key.h / 2, {
+        const state = hit ? 'hit' : used ? 'miss' : 'none';
+        const dy = used ? 1.5 : 0;
+        ctx.drawImage(this.#keySprite(state, key.w), key.x, key.y + dy, key.w, key.h);
+        this.text(ctx, key.label, key.x + key.w / 2, key.y + dy + key.h / 2, {
           size: 17,
           color: hit ? '#86efac' : used ? '#3a4152' : '#e9edf6',
         });

@@ -48,6 +48,9 @@ export default class Simon extends BaseGame {
     this.host.setSecondary(0);
     this.litPad = -1;
     this.litTimer = 0;
+    this.litDuration = 0;
+    this.focus = 0;
+    this.finished = false;
     this.state = 'idle';
     this.stateTimer = 1;
     this.step = 0;
@@ -78,7 +81,15 @@ export default class Simon extends BaseGame {
   #flash(pad, duration) {
     this.litPad = pad;
     this.litTimer = duration;
+    this.litDuration = duration;
     this.tone(PADS[pad].freq, { dur: duration * 0.9, gain: 0.2, type: 'triangle' });
+  }
+
+  /** The middle of a pad's arc, for particles and popups. */
+  #padCenter(index) {
+    const mid = (PADS[index].start + PADS[index].end) / 2;
+    const r = (INNER + OUTER) / 2;
+    return [CX + Math.cos(mid) * r, CY + Math.sin(mid) * r];
   }
 
   /* =============================================================== update */
@@ -91,6 +102,10 @@ export default class Simon extends BaseGame {
       this.litTimer -= dt;
       if (this.litTimer <= 0) this.litPad = -1;
     }
+
+    // The pads brighten while it is your turn; eased, never snapped.
+    const focusTarget = this.state === 'input' ? 1 : 0;
+    this.focus += (focusTarget - this.focus) * Math.min(1, dt * 9);
 
     switch (this.state) {
       case 'idle':
@@ -160,12 +175,22 @@ export default class Simon extends BaseGame {
       return;
     }
 
+    const [px, py] = this.#padCenter(pad);
+    this.particles.emit(px, py, {
+      count: 6, speed: 80, color: PADS[pad].lit, life: 0.35, size: 2.2, shape: 'circle',
+    });
+
     this.inputIndex++;
     if (this.inputIndex < this.sequence.length) return;
 
     /* --- the whole sequence, repeated --- */
     const points = this.sequence.length * 100;
-    this.addScore(points);
+    this.addScore(points, { x: CX, y: CY - INNER - 24, color: '#4ade80' });
+    for (const p of PADS) {
+      this.particles.emit(CX, CY, {
+        count: 9, speed: 220, color: p.lit, life: 0.6, size: 2.6, shape: 'circle',
+      });
+    }
     this.play('powerup');
     this.shake.add(3);
     this.state = 'cleared';
@@ -216,35 +241,71 @@ export default class Simon extends BaseGame {
     ctx.save();
     this.shake.apply(ctx);
 
-    PADS.forEach((pad, i) => this.#drawPad(ctx, pad, i));
+    // A quiet pool of light the ring sits in.
+    const bg = ctx.createRadialGradient(CX, CY, INNER, CX, CY, OUTER * 1.5);
+    bg.addColorStop(0, 'rgba(120,140,200,0.06)');
+    bg.addColorStop(0.6, 'rgba(120,140,200,0.02)');
+    bg.addColorStop(1, 'rgba(120,140,200,0)');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+
+    // A bezel around the whole console.
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.arc(CX, CY, OUTER + 9, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // The two shading passes every pad shares, built once per frame.
+    const rim = ctx.createRadialGradient(CX, CY, INNER, CX, CY, OUTER);
+    rim.addColorStop(0, 'rgba(255,255,255,0.12)');
+    rim.addColorStop(0.35, 'rgba(255,255,255,0)');
+    rim.addColorStop(0.82, 'rgba(0,0,0,0)');
+    rim.addColorStop(1, 'rgba(0,0,0,0.3)');
+
+    PADS.forEach((pad, i) => this.#drawPad(ctx, pad, i, rim));
     this.#drawHub(ctx);
     this.drawEffects(ctx);
 
     ctx.restore();
   }
 
-  #drawPad(ctx, pad, index) {
-    const lit = this.litPad === index;
+  #padPath(ctx, pad) {
     const gap = 0.035; // radians of dark between the quadrants
-
-    ctx.save();
     ctx.beginPath();
     ctx.arc(CX, CY, OUTER, pad.start + gap, pad.end - gap);
     ctx.arc(CX, CY, INNER, pad.end - gap, pad.start + gap, true);
     ctx.closePath();
+  }
 
-    if (lit) {
-      ctx.fillStyle = pad.lit;
-      ctx.shadowColor = pad.color;
-      ctx.shadowBlur = 40;
-    } else {
-      ctx.fillStyle = pad.color;
-      ctx.globalAlpha = this.state === 'input' ? 0.55 : 0.34;
-    }
+  #drawPad(ctx, pad, index, rim) {
+    const lit = this.litPad === index;
+    // The light decays with the timer instead of cutting out — a glow, not a
+    // strobe — and the tail of the ease is where the afterimage lives.
+    const heat = lit && this.litDuration > 0
+      ? Math.min(1, Math.max(0, this.litTimer / this.litDuration)) ** 0.6
+      : 0;
+
+    ctx.save();
+    this.#padPath(ctx, pad);
+
+    ctx.fillStyle = pad.color;
+    ctx.globalAlpha = 0.34 + this.focus * 0.21;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = rim;
     ctx.fill();
 
-    ctx.globalAlpha = 1;
-    ctx.shadowBlur = 0;
+    if (heat > 0) {
+      ctx.fillStyle = pad.lit;
+      ctx.globalAlpha = heat;
+      ctx.shadowColor = pad.color;
+      ctx.shadowBlur = 14 + heat * 26;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.shadowBlur = 0;
+    }
+
     ctx.strokeStyle = 'rgba(0,0,0,0.55)';
     ctx.lineWidth = 3;
     ctx.stroke();
@@ -253,7 +314,10 @@ export default class Simon extends BaseGame {
 
   #drawHub(ctx) {
     ctx.save();
-    ctx.fillStyle = '#0b1018';
+    const dish = ctx.createRadialGradient(CX, CY - INNER * 0.4, INNER * 0.2, CX, CY, INNER);
+    dish.addColorStop(0, '#141b28');
+    dish.addColorStop(1, '#090d15');
+    ctx.fillStyle = dish;
     ctx.beginPath();
     ctx.arc(CX, CY, INNER - 4, 0, Math.PI * 2);
     ctx.fill();

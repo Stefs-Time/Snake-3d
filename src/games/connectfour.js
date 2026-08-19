@@ -71,9 +71,120 @@ export default class ConnectFour extends BaseGame {
 
     this.round = 1;
     this.wins = 0;
+    this.#buildLayers();
+    this.#buildSprites();
     this.#newGame(HUMAN);
     this.banner('Drop one');
     this.play('ready');
+  }
+
+  /** The backdrop and the punched slab never change — paint them once. */
+  #buildLayers() {
+    const scale = 2;
+
+    const bg = document.createElement('canvas');
+    bg.width = W * scale;
+    bg.height = H * scale;
+    let c = bg.getContext('2d');
+    c.scale(scale, scale);
+    const glow = c.createRadialGradient(W / 2, BOARD_Y + BOARD_H / 2, 60, W / 2, BOARD_Y + BOARD_H / 2, W * 0.75);
+    glow.addColorStop(0, 'rgba(56,189,248,0.07)');
+    glow.addColorStop(1, 'rgba(0,0,0,0)');
+    c.fillStyle = glow;
+    c.fillRect(0, 0, W, H);
+    c.fillStyle = 'rgba(255,255,255,0.04)';
+    for (let x = 32; x < W; x += 32) {
+      for (let y = 32; y < H; y += 32) c.fillRect(x - 1, y - 1, 2, 2);
+    }
+    this.bgLayer = bg;
+
+    const slab = document.createElement('canvas');
+    slab.width = W * scale;
+    slab.height = H * scale;
+    c = slab.getContext('2d');
+    c.scale(scale, scale);
+    const body = c.createLinearGradient(0, BOARD_Y - 10, 0, BOARD_Y + BOARD_H + 10);
+    body.addColorStop(0, '#1a2450');
+    body.addColorStop(0.5, '#131c3d');
+    body.addColorStop(1, '#0e1530');
+    c.fillStyle = body;
+    this.roundRect(c, BOARD_X - 10, BOARD_Y - 10, BOARD_W + 20, BOARD_H + 20, 14);
+    for (let r = 0; r < ROWS; r++) {
+      for (let col = 0; col < COLS; col++) {
+        const x = BOARD_X + col * CELL + CELL / 2;
+        const y = BOARD_Y + r * CELL + CELL / 2;
+        c.moveTo(x + DISC_R, y);
+        c.arc(x, y, DISC_R, 0, Math.PI * 2, true);
+      }
+    }
+    c.fill('evenodd');
+    // Each hole gets a machined rim so the slab reads as having thickness.
+    c.lineWidth = 1.5;
+    for (let r = 0; r < ROWS; r++) {
+      for (let col = 0; col < COLS; col++) {
+        const x = BOARD_X + col * CELL + CELL / 2;
+        const y = BOARD_Y + r * CELL + CELL / 2;
+        c.strokeStyle = 'rgba(0,0,0,0.55)';
+        c.beginPath();
+        c.arc(x, y, DISC_R + 1, 0, Math.PI * 2);
+        c.stroke();
+        c.strokeStyle = 'rgba(56,189,248,0.14)';
+        c.beginPath();
+        c.arc(x, y, DISC_R + 2.5, 0, Math.PI * 2);
+        c.stroke();
+      }
+    }
+    c.strokeStyle = 'rgba(56,189,248,0.28)';
+    c.lineWidth = 1.5;
+    this.roundRect(c, BOARD_X - 10, BOARD_Y - 10, BOARD_W + 20, BOARD_H + 20, 14).stroke();
+    this.slabLayer = slab;
+  }
+
+  #buildSprites() {
+    const make = (player) => {
+      const scale = 3;
+      const size = CELL;
+      const cnv = document.createElement('canvas');
+      cnv.width = cnv.height = size * scale;
+      const c = cnv.getContext('2d');
+      c.scale(scale, scale);
+      const cx = size / 2;
+      const cy = size / 2;
+      const color = player === HUMAN ? '#fbbf24' : '#fb7185';
+      const deep = player === HUMAN ? '#8a5a06' : '#8a1f3c';
+      const mid = player === HUMAN ? '#f59e0b' : '#f43f5e';
+
+      const body = c.createRadialGradient(cx - DISC_R * 0.3, cy - DISC_R * 0.35, DISC_R * 0.1, cx, cy, DISC_R * 1.05);
+      body.addColorStop(0, player === HUMAN ? '#ffe28a' : '#ff9ab5');
+      body.addColorStop(0.55, mid);
+      body.addColorStop(1, deep);
+      c.save();
+      c.shadowColor = color;
+      c.shadowBlur = 10;
+      c.fillStyle = body;
+      c.beginPath();
+      c.arc(cx, cy, DISC_R, 0, Math.PI * 2);
+      c.fill();
+      c.restore();
+
+      // The pressed ring every plastic checker has.
+      c.strokeStyle = 'rgba(0,0,0,0.3)';
+      c.lineWidth = 2;
+      c.beginPath();
+      c.arc(cx, cy, DISC_R * 0.62, 0, Math.PI * 2);
+      c.stroke();
+
+      const dome = c.createRadialGradient(cx - DISC_R * 0.28, cy - DISC_R * 0.36, 0, cx - DISC_R * 0.28, cy - DISC_R * 0.36, DISC_R * 0.75);
+      dome.addColorStop(0, 'rgba(255,255,255,0.55)');
+      dome.addColorStop(1, 'rgba(255,255,255,0)');
+      c.fillStyle = dome;
+      c.beginPath();
+      c.arc(cx, cy, DISC_R, 0, Math.PI * 2);
+      c.fill();
+
+      return cnv;
+    };
+    this.discSprites = { [HUMAN]: make(HUMAN), [AI]: make(AI) };
   }
 
   #newGame(starter) {
@@ -84,6 +195,7 @@ export default class ConnectFour extends BaseGame {
     this.settleTimer = 0;
     this.aiTimer = starter === AI ? 0.7 : 0;
     this.falling = null; // { col, row, player, y, vy }
+    this.lastIndex = -1;
     this.depth = Math.min(7, 3 + Math.floor((this.round - 1) / 2) * 2);
     this.host.setSecondary(this.round);
   }
@@ -203,6 +315,7 @@ export default class ConnectFour extends BaseGame {
   #land() {
     const { col, row, player } = this.falling;
     this.cells[row * COLS + col] = player;
+    this.lastIndex = row * COLS + col;
     this.falling = null;
     this.shake.add(3);
     this.play('bounce');
@@ -306,6 +419,7 @@ export default class ConnectFour extends BaseGame {
 
   draw(ctx) {
     this.clear(ctx, '#060812');
+    ctx.drawImage(this.bgLayer, 0, 0, W, H);
     ctx.save();
     this.shake.apply(ctx);
 
@@ -372,39 +486,24 @@ export default class ConnectFour extends BaseGame {
 
   /** One dark slab with the cells cut out of it, drawn over the discs. */
   #drawSlab(ctx) {
-    ctx.save();
-    ctx.fillStyle = '#141c3a';
-    this.roundRect(ctx, BOARD_X - 10, BOARD_Y - 10, BOARD_W + 20, BOARD_H + 20, 14);
-    for (let r = 0; r < ROWS; r++) {
-      for (let c = 0; c < COLS; c++) {
-        const x = BOARD_X + c * CELL + CELL / 2;
-        const y = BOARD_Y + r * CELL + CELL / 2;
-        ctx.moveTo(x + DISC_R, y);
-        ctx.arc(x, y, DISC_R, 0, Math.PI * 2, true);
-      }
+    ctx.drawImage(this.slabLayer, 0, 0, W, H);
+
+    if (this.lastIndex >= 0 && this.cells[this.lastIndex] && !this.winLine) {
+      const x = BOARD_X + (this.lastIndex % COLS) * CELL + CELL / 2;
+      const y = BOARD_Y + Math.floor(this.lastIndex / COLS) * CELL + CELL / 2;
+      ctx.save();
+      ctx.strokeStyle = this.cells[this.lastIndex] === HUMAN ? '#fbbf24' : '#fb7185';
+      ctx.globalAlpha = 0.85;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(x, y, DISC_R + 2.5, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
     }
-    ctx.fill('evenodd');
-    ctx.strokeStyle = 'rgba(56,189,248,0.28)';
-    ctx.lineWidth = 1.5;
-    this.roundRect(ctx, BOARD_X - 10, BOARD_Y - 10, BOARD_W + 20, BOARD_H + 20, 14).stroke();
-    ctx.restore();
   }
 
   #disc(ctx, x, y, player, scale) {
-    const color = player === HUMAN ? '#fbbf24' : '#fb7185';
-    ctx.save();
-    ctx.shadowColor = color;
-    ctx.shadowBlur = 14;
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    ctx.arc(x, y, DISC_R * scale, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.shadowBlur = 0;
-    ctx.globalAlpha = 0.25;
-    ctx.fillStyle = '#ffffff';
-    ctx.beginPath();
-    ctx.arc(x - DISC_R * 0.24, y - DISC_R * 0.28, DISC_R * 0.42, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
+    const s = CELL * scale;
+    ctx.drawImage(this.discSprites[player], x - s / 2, y - s / 2, s, s);
   }
 }

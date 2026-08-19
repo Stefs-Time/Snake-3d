@@ -19,6 +19,10 @@ const BOARD_TOP = 84;
 
 const SIZES = { 3: 3, 4: 4, 5: 5 };
 
+/** Cached sprites render at 2x so the scaled canvas stays crisp on phones. */
+const SPRITE_SCALE = 2;
+const PLATE_PAD = 12;
+
 export default class Fifteen extends BaseGame {
   static id = 'fifteen';
   static width = W;
@@ -71,6 +75,10 @@ export default class Fifteen extends BaseGame {
     this.boardW = this.cell * this.n;
     this.boardX = (W - this.boardW) / 2;
     this.boardY = BOARD_TOP;
+
+    // The plates and the well are sized to the cell, so both bake per build.
+    this.plates = { home: this.#makePlate(true), away: this.#makePlate(false) };
+    this.backdrop = this.#makeBackdrop();
 
     // Solved state: 1..n²-1 then the gap, which is 0.
     this.tiles = Array.from({ length: this.n * this.n }, (_, i) => (i + 1) % (this.n * this.n));
@@ -135,6 +143,14 @@ export default class Fifteen extends BaseGame {
     this.totalMoves++;
     this.play('blip');
 
+    // A tile arriving home gets a quiet green spark — progress you can see.
+    if (this.tiles[moved] === moved + 1) {
+      const [x, y] = this.#cellXY(moved);
+      this.particles.emit(x + this.cell / 2, y + this.cell / 2, {
+        count: 6, speed: 60, color: '#4ade80', life: 0.35, size: 2.2,
+      });
+    }
+
     if (this.#isSolved()) this.#solve();
     return true;
   }
@@ -145,9 +161,26 @@ export default class Fifteen extends BaseGame {
     const par = this.n * this.n * 6;
     const efficiency = Math.max(0, par - this.moves) * 12;
     const speed = Math.max(0, 200 - Math.round(this.elapsed)) * 6;
-    this.addScore(500 * (this.n - 2) + efficiency + speed);
+    const points = 500 * (this.n - 2) + efficiency + speed;
+    this.addScore(points, {
+      x: this.boardX + this.boardW / 2,
+      y: this.boardY + this.boardW / 2,
+      color: '#4ade80',
+    });
     this.banner('Solved!');
     this.play('highscore');
+    this.shake.add(4);
+
+    // A shower from every tile, staggered down the rows.
+    for (let i = 0; i < this.n * this.n; i++) {
+      if (!this.tiles[i]) continue;
+      const [x, y] = this.#cellXY(i);
+      this.particles.emit(x + this.cell / 2, y + this.cell / 2, {
+        count: 4, speed: 120, color: i % 2 ? '#4ade80' : '#a3e635',
+        life: 0.7, size: 2.6, gravity: 180,
+      });
+    }
+
     this.puzzleNo++;
     this.breakTimer = 1.8;
   }
@@ -203,14 +236,18 @@ export default class Fifteen extends BaseGame {
     ctx.save();
     this.shake.apply(ctx);
 
-    this.text(ctx, `${this.moves} MOVES`, W / 2, 34, { size: 16, color: '#a3e635', glow: 8 });
-    this.text(ctx, `${Math.floor(this.elapsed / 60)}:${String(Math.floor(this.elapsed % 60)).padStart(2, '0')}`,
-      W / 2, 58, { size: 11, color: '#5c6478' });
+    ctx.drawImage(this.backdrop, 0, 0, W, H);
 
-    ctx.save();
-    ctx.fillStyle = 'rgba(255,255,255,0.03)';
-    this.roundRect(ctx, this.boardX - 8, this.boardY - 8, this.boardW + 16, this.boardW + 16, 12).fill();
-    ctx.restore();
+    /* --- readouts above the board --- */
+    this.text(ctx, String(this.moves), this.boardX + 2, 46, {
+      size: 24, color: '#a3e635', align: 'left', glow: 8,
+    });
+    this.text(ctx,
+      `${Math.floor(this.elapsed / 60)}:${String(Math.floor(this.elapsed % 60)).padStart(2, '0')}`,
+      this.boardX + this.boardW - 2, 46, { size: 24, color: '#e9edf6', align: 'right' });
+    this.text(ctx, `${this.n}×${this.n} · PUZZLE ${this.puzzleNo}`, W / 2, 46, {
+      size: 11, color: '#5c6478',
+    });
 
     for (let i = 0; i < this.n * this.n; i++) {
       const value = this.tiles[i];
@@ -231,25 +268,115 @@ export default class Fifteen extends BaseGame {
   }
 
   #tile(ctx, x, y, value, home) {
-    const pad = 4;
-    const size = this.cell - pad * 2;
-
-    ctx.save();
-    // Tiles already in their final place go green, so progress is visible.
-    ctx.fillStyle = home ? '#14351f' : '#1a2333';
-    ctx.shadowColor = home ? '#4ade80' : '#38bdf8';
-    ctx.shadowBlur = home ? 12 : 6;
-    this.roundRect(ctx, x + pad, y + pad, size, size, 9).fill();
-    ctx.shadowBlur = 0;
-    ctx.strokeStyle = home ? 'rgba(74,222,128,0.5)' : 'rgba(56,189,248,0.25)';
-    ctx.lineWidth = 1.5;
-    this.roundRect(ctx, x + pad, y + pad, size, size, 9).stroke();
-    ctx.restore();
-
-    this.text(ctx, String(value), x + this.cell / 2, y + this.cell / 2, {
+    const plate = home ? this.plates.home : this.plates.away;
+    ctx.drawImage(
+      plate,
+      x - PLATE_PAD, y - PLATE_PAD,
+      this.cell + PLATE_PAD * 2, this.cell + PLATE_PAD * 2,
+    );
+    this.text(ctx, String(value), x + this.cell / 2, y + this.cell / 2 + 1, {
       size: Math.round(this.cell * (value > 9 ? 0.34 : 0.4)),
-      color: home ? '#86efac' : '#e9edf6',
+      color: home ? '#a7f3c4' : '#e9edf6',
     });
+  }
+
+  /** One tile plate per state, bevel and glow baked — draw() stays flat. */
+  #makePlate(home) {
+    const s = SPRITE_SCALE;
+    const span = this.cell + PLATE_PAD * 2;
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = span * s;
+    const g = canvas.getContext('2d');
+    g.scale(s, s);
+
+    const pad = PLATE_PAD + 4;
+    const size = span - pad * 2;
+
+    g.fillStyle = home ? '#14351f' : '#1a2333';
+    g.shadowColor = home ? '#4ade80' : '#38bdf8';
+    g.shadowBlur = home ? 14 : 8;
+    this.roundRect(g, pad, pad, size, size, 9).fill();
+    g.shadowBlur = 0;
+
+    // Top light, bottom shade — the tile reads as a physical piece.
+    const bevel = g.createLinearGradient(0, pad, 0, pad + size);
+    bevel.addColorStop(0, 'rgba(255,255,255,0.14)');
+    bevel.addColorStop(0.4, 'rgba(255,255,255,0.02)');
+    bevel.addColorStop(1, 'rgba(0,0,0,0.28)');
+    g.fillStyle = bevel;
+    this.roundRect(g, pad, pad, size, size, 9).fill();
+
+    g.strokeStyle = home ? 'rgba(74,222,128,0.55)' : 'rgba(56,189,248,0.3)';
+    g.lineWidth = 1.5;
+    this.roundRect(g, pad, pad, size, size, 9).stroke();
+
+    g.strokeStyle = 'rgba(255,255,255,0.08)';
+    g.lineWidth = 1;
+    this.roundRect(g, pad + 2, pad + 2, size - 4, size - 4, 7).stroke();
+    return canvas;
+  }
+
+  /** Every static pixel — wash, framed well, empty sockets — baked per size. */
+  #makeBackdrop() {
+    const s = SPRITE_SCALE;
+    const canvas = document.createElement('canvas');
+    canvas.width = W * s;
+    canvas.height = H * s;
+    const g = canvas.getContext('2d');
+    g.scale(s, s);
+
+    g.fillStyle = '#070910';
+    g.fillRect(0, 0, W, H);
+    const wash = g.createRadialGradient(
+      W / 2, this.boardY + this.boardW / 2, this.boardW * 0.2,
+      W / 2, this.boardY + this.boardW / 2, this.boardW,
+    );
+    wash.addColorStop(0, 'rgba(56,189,248,0.06)');
+    wash.addColorStop(1, 'rgba(56,189,248,0)');
+    g.fillStyle = wash;
+    g.fillRect(0, 0, W, H);
+
+    g.fillStyle = 'rgba(255,255,255,0.035)';
+    for (let x = 26; x < W; x += 26) {
+      for (let y = 26; y < H; y += 26) g.fillRect(x - 1, y - 1, 2, 2);
+    }
+
+    /* --- the board well --- */
+    const bx = this.boardX;
+    const by = this.boardY;
+    const bw = this.boardW;
+    const deep = g.createLinearGradient(0, by, 0, by + bw);
+    deep.addColorStop(0, 'rgba(0,0,0,0.4)');
+    deep.addColorStop(1, 'rgba(0,0,0,0.15)');
+    g.fillStyle = 'rgba(255,255,255,0.03)';
+    this.roundRect(g, bx - 10, by - 10, bw + 20, bw + 20, 14).fill();
+    g.fillStyle = deep;
+    this.roundRect(g, bx - 6, by - 6, bw + 12, bw + 12, 12).fill();
+
+    g.strokeStyle = 'rgba(56,189,248,0.3)';
+    g.shadowColor = '#38bdf8';
+    g.shadowBlur = 12;
+    g.lineWidth = 1.5;
+    this.roundRect(g, bx - 10.5, by - 10.5, bw + 21, bw + 21, 14).stroke();
+    g.shadowBlur = 0;
+
+    // Sockets where the tiles sit, so the gap reads as a hole, not a glitch.
+    for (let r = 0; r < this.n; r++) {
+      for (let c = 0; c < this.n; c++) {
+        const x = bx + c * this.cell + 4;
+        const y = by + r * this.cell + 4;
+        g.fillStyle = 'rgba(0,0,0,0.3)';
+        this.roundRect(g, x, y, this.cell - 8, this.cell - 8, 9).fill();
+        g.strokeStyle = 'rgba(255,255,255,0.04)';
+        g.lineWidth = 1;
+        this.roundRect(g, x + 0.5, y + 0.5, this.cell - 9, this.cell - 9, 9).stroke();
+      }
+    }
+
+    /* --- readout labels --- */
+    this.text(g, 'MOVES', bx + 2, 24, { size: 10, color: '#5c6478', align: 'left' });
+    this.text(g, 'TIME', bx + bw - 2, 24, { size: 10, color: '#5c6478', align: 'right' });
+    return canvas;
   }
 }
 

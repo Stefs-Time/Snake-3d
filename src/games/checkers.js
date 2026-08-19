@@ -118,7 +118,8 @@ function legalMoves(cells, humanSide) {
         for (const [dr, dc] of dirs) {
           const nr = r + dr, nc = c + dc;
           if (inBounds(nr, nc) && cells[idx(nr, nc)] === EMPTY) {
-            simple.push({ from: { r, c }, path: [{ r: nr, c: nc }], captured: [], becameKing: false });
+            const promo = !isKingVal(v) && nr === (isHumanVal(v) ? 0 : N - 1);
+            simple.push({ from: { r, c }, path: [{ r: nr, c: nc }], captured: [], becameKing: promo });
           }
         }
       }
@@ -226,6 +227,8 @@ export default class Checkers extends BaseGame {
     this.setLives(3);
 
     this.gameNo = 1;
+    this.#buildBoardLayer();
+    this.#buildSprites();
     this.#applyLevel(this.option('level'));
     this.#newGame();
     this.banner('Checkers');
@@ -252,12 +255,19 @@ export default class Checkers extends BaseGame {
     this.cells = startingBoard();
     this.turn = 'human';
     this.selection = null;
-    this.legal = legalMoves(this.cells, true);
+    this.#setLegal(legalMoves(this.cells, true));
     this.result = null;
     this.settleTimer = 0;
     this.aiTimer = 0;
     this.plySinceAction = 0;
+    this.anim = null;
+    this.lastMove = null;
     this.host.setSecondary(this.gameNo);
+  }
+
+  #setLegal(moves) {
+    this.legal = moves;
+    this.capturers = new Set(moves.filter((mv) => mv.captured.length).map((mv) => idx(mv.from.r, mv.from.c)));
   }
 
   /* ==================================================================== ai */
@@ -283,16 +293,38 @@ export default class Checkers extends BaseGame {
   /* =============================================================== playing */
 
   #apply(move) {
+    const mover = this.turn;
+    const capVals = move.captured.map((i) => this.cells[i]);
     this.cells = applyMove(this.cells, move);
-    this.plySinceAction = move.captured.length ? 0 : this.plySinceAction + 1;
+    this.plySinceAction = move.captured.length || move.becameKing ? 0 : this.plySinceAction + 1;
     this.selection = null;
+
+    const last = move.path[move.path.length - 1];
+    this.lastMove = { from: idx(move.from.r, move.from.c), to: idx(last.r, last.c) };
+    this.anim = {
+      steps: [{ r: move.from.r, c: move.from.c }, ...move.path],
+      val: this.cells[idx(last.r, last.c)],
+      to: idx(last.r, last.c),
+      captured: move.captured,
+      capVals,
+      capColor: mover === 'human' ? '#fb7185' : '#38bdf8',
+      capIndex: 0,
+      t: 0,
+      dur: 0.15 * move.path.length,
+    };
+    if (move.becameKing) {
+      this.popups.add(BOARD_X + last.c * CELL + CELL / 2, BOARD_Y + last.r * CELL + 8, 'KING', '#ffd23f');
+      this.particles.emit(BOARD_X + last.c * CELL + CELL / 2, BOARD_Y + last.r * CELL + CELL / 2, {
+        count: 16, speed: 140, color: '#ffd23f', life: 0.6, size: 2.6, shape: 'circle',
+      });
+    }
 
     if (move.captured.length > 1) this.shake.add(4);
     this.play(move.captured.length ? 'hit' : 'select');
     if (move.becameKing) this.play('powerup');
 
     this.turn = this.turn === 'human' ? 'ai' : 'human';
-    this.legal = legalMoves(this.cells, this.turn === 'human');
+    this.#setLegal(legalMoves(this.cells, this.turn === 'human'));
 
     // A draw is declared after a long spell with neither a capture nor a
     // crowning — the same defence real rule sets use against a dead position
@@ -318,6 +350,9 @@ export default class Checkers extends BaseGame {
       this.addScore(500 + counts.human * 40 + this.depth * 120);
       this.banner('You win!');
       this.play('highscore');
+      this.particles.emit(BOARD_X + BOARD / 2, BOARD_Y + BOARD / 2, {
+        count: 42, speed: 260, color: '#ffd23f', life: 0.9, size: 3, shape: 'circle',
+      });
     } else if (winner === 'ai') {
       this.banner('The machine wins');
       this.play('die');
@@ -356,6 +391,23 @@ export default class Checkers extends BaseGame {
   update(dt) {
     this.updateEffects(dt);
     if (this.over) return;
+
+    if (this.anim) {
+      const a = this.anim;
+      a.t += dt;
+      const segs = a.steps.length - 1;
+      const p = (a.t / a.dur) * segs;
+      while (a.capIndex < a.captured.length && p >= a.capIndex + 0.5) {
+        const capIdx = a.captured[a.capIndex++];
+        this.particles.emit(
+          BOARD_X + (capIdx % N) * CELL + CELL / 2,
+          BOARD_Y + ((capIdx / N) | 0) * CELL + CELL / 2,
+          { count: 14, speed: 130, color: a.capColor, life: 0.5, size: 2.8, shape: 'circle' },
+        );
+      }
+      if (a.t >= a.dur) this.anim = null;
+      else return;
+    }
 
     if (this.result !== null) {
       this.settleTimer -= dt;
@@ -421,21 +473,170 @@ export default class Checkers extends BaseGame {
     ctx.restore();
   }
 
-  #drawBoard(ctx) {
+  /** The board never changes, so all its gradients are painted exactly once. */
+  #buildBoardLayer() {
+    const scale = 2;
+    const layer = document.createElement('canvas');
+    layer.width = W * scale;
+    layer.height = H * scale;
+    const c = layer.getContext('2d');
+    c.scale(scale, scale);
+
+    // Outer rim — an inset well the squares sit inside.
+    const rim = c.createLinearGradient(0, BOARD_Y - 12, 0, BOARD_Y + BOARD + 12);
+    rim.addColorStop(0, '#12241a');
+    rim.addColorStop(1, '#081209');
+    c.fillStyle = rim;
+    this.roundRect(c, BOARD_X - 12, BOARD_Y - 12, BOARD + 24, BOARD + 24, 10).fill();
+    c.strokeStyle = 'rgba(74,222,128,0.3)';
+    c.lineWidth = 1.5;
+    this.roundRect(c, BOARD_X - 12, BOARD_Y - 12, BOARD + 24, BOARD + 24, 10).stroke();
+    c.fillStyle = 'rgba(0,0,0,0.5)';
+    c.fillRect(BOARD_X - 3, BOARD_Y - 3, BOARD + 6, BOARD + 6);
+
     for (let r = 0; r < N; r++) {
-      for (let c = 0; c < N; c++) {
-        const dark = (r + c) % 2 === 1;
-        ctx.fillStyle = dark ? '#132018' : '#0a120d';
-        ctx.fillRect(BOARD_X + c * CELL, BOARD_Y + r * CELL, CELL, CELL);
+      for (let c2 = 0; c2 < N; c2++) {
+        const x = BOARD_X + c2 * CELL;
+        const y = BOARD_Y + r * CELL;
+        const dark = (r + c2) % 2 === 1;
+        const g = c.createLinearGradient(0, y, 0, y + CELL);
+        if (dark) {
+          g.addColorStop(0, '#17271c');
+          g.addColorStop(1, '#0f1a12');
+        } else {
+          g.addColorStop(0, '#0b140e');
+          g.addColorStop(1, '#080f0a');
+        }
+        c.fillStyle = g;
+        c.fillRect(x, y, CELL, CELL);
+        if (dark) {
+          c.strokeStyle = 'rgba(74,222,128,0.06)';
+          c.lineWidth = 1;
+          c.strokeRect(x + 0.5, y + 0.5, CELL - 1, CELL - 1);
+        }
       }
     }
-    ctx.strokeStyle = 'rgba(74,222,128,0.25)';
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(BOARD_X - 1, BOARD_Y - 1, BOARD + 2, BOARD + 2);
+
+    // A soft sheen falling across the playfield.
+    const sheen = c.createLinearGradient(BOARD_X, BOARD_Y, BOARD_X + BOARD, BOARD_Y + BOARD);
+    sheen.addColorStop(0, 'rgba(255,255,255,0.035)');
+    sheen.addColorStop(0.5, 'rgba(255,255,255,0)');
+    sheen.addColorStop(1, 'rgba(0,0,0,0.06)');
+    c.fillStyle = sheen;
+    c.fillRect(BOARD_X, BOARD_Y, BOARD, BOARD);
+
+    // Quiet coordinates, the way a physical board etches them into the rim.
+    c.font = '600 9px ui-monospace, monospace';
+    c.fillStyle = 'rgba(134,239,172,0.35)';
+    c.textAlign = 'center';
+    c.textBaseline = 'middle';
+    for (let i = 0; i < N; i++) {
+      c.fillText(String.fromCharCode(97 + i), BOARD_X + i * CELL + CELL / 2, BOARD_Y + BOARD + 8);
+      c.fillText(String(N - i), BOARD_X - 8, BOARD_Y + i * CELL + CELL / 2);
+    }
+
+    this.boardLayer = layer;
+  }
+
+  #buildSprites() {
+    const make = (human, king) => {
+      const scale = 3;
+      const cnv = document.createElement('canvas');
+      cnv.width = cnv.height = CELL * scale;
+      const c = cnv.getContext('2d');
+      c.scale(scale, scale);
+      const cx = CELL / 2;
+      const cy = CELL / 2;
+      const r = CELL * 0.36;
+      const rim = human ? '#38bdf8' : '#fb7185';
+
+      c.fillStyle = 'rgba(0,0,0,0.5)';
+      c.beginPath();
+      c.ellipse(cx, cy + r * 0.16, r * 1.02, r * 0.9, 0, 0, Math.PI * 2);
+      c.fill();
+
+      const body = c.createRadialGradient(cx - r * 0.35, cy - r * 0.42, r * 0.15, cx, cy, r * 1.05);
+      if (human) {
+        body.addColorStop(0, '#ffffff');
+        body.addColorStop(0.55, '#dbe4f4');
+        body.addColorStop(1, '#93a8cc');
+      } else {
+        body.addColorStop(0, '#46536b');
+        body.addColorStop(0.55, '#28334a');
+        body.addColorStop(1, '#121826');
+      }
+      c.save();
+      c.shadowColor = rim;
+      c.shadowBlur = 8;
+      c.fillStyle = body;
+      c.beginPath();
+      c.arc(cx, cy, r, 0, Math.PI * 2);
+      c.fill();
+      c.restore();
+
+      c.strokeStyle = rim;
+      c.lineWidth = 2;
+      c.beginPath();
+      c.arc(cx, cy, r, 0, Math.PI * 2);
+      c.stroke();
+
+      // The turned ridge every real checker has.
+      c.globalAlpha = 0.45;
+      c.lineWidth = 1.2;
+      c.beginPath();
+      c.arc(cx, cy, r * 0.7, 0, Math.PI * 2);
+      c.stroke();
+      c.globalAlpha = 1;
+
+      // Dome highlight.
+      const dome = c.createRadialGradient(cx - r * 0.3, cy - r * 0.42, 0, cx - r * 0.3, cy - r * 0.42, r * 0.75);
+      dome.addColorStop(0, human ? 'rgba(255,255,255,0.75)' : 'rgba(255,255,255,0.28)');
+      dome.addColorStop(1, 'rgba(255,255,255,0)');
+      c.fillStyle = dome;
+      c.beginPath();
+      c.arc(cx, cy, r, 0, Math.PI * 2);
+      c.fill();
+
+      if (king) {
+        c.save();
+        c.shadowColor = rim;
+        c.shadowBlur = 6;
+        c.fillStyle = rim;
+        c.font = `700 ${CELL * 0.34}px ui-monospace, monospace`;
+        c.textAlign = 'center';
+        c.textBaseline = 'middle';
+        c.fillText('♛', cx, cy + 1);
+        c.restore();
+      }
+      return cnv;
+    };
+    this.sprites = {
+      [H_MAN]: make(true, false),
+      [H_KING]: make(true, true),
+      [A_MAN]: make(false, false),
+      [A_KING]: make(false, true),
+    };
+  }
+
+  #drawBoard(ctx) {
+    ctx.drawImage(this.boardLayer, 0, 0, W, H);
+
+    if (this.lastMove) {
+      for (const [i, alpha] of [[this.lastMove.from, 0.1], [this.lastMove.to, 0.18]]) {
+        const x = BOARD_X + (i % N) * CELL;
+        const y = BOARD_Y + ((i / N) | 0) * CELL;
+        ctx.fillStyle = `rgba(180,123,255,${alpha})`;
+        ctx.fillRect(x, y, CELL, CELL);
+      }
+      const to = this.lastMove.to;
+      ctx.strokeStyle = 'rgba(180,123,255,0.4)';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(BOARD_X + (to % N) * CELL + 1.5, BOARD_Y + ((to / N) | 0) * CELL + 1.5, CELL - 3, CELL - 3);
+    }
   }
 
   #drawHints(ctx) {
-    if (this.turn !== 'human' || this.result !== null) return;
+    if (this.turn !== 'human' || this.result !== null || this.anim) return;
     if (this.selection) {
       const { r, c } = this.selection;
       ctx.save();
@@ -462,11 +663,10 @@ export default class Checkers extends BaseGame {
       }
     } else {
       // Squares that must move — forced captures glow so the rule teaches itself.
-      const capturers = new Set(this.legal.filter((mv) => mv.captured.length).map((mv) => idx(mv.from.r, mv.from.c)));
-      if (!capturers.size) return;
+      if (!this.capturers.size) return;
       for (let r = 0; r < N; r++) {
         for (let c = 0; c < N; c++) {
-          if (!capturers.has(idx(r, c))) continue;
+          if (!this.capturers.has(idx(r, c))) continue;
           ctx.save();
           ctx.globalAlpha = 0.5;
           ctx.fillStyle = 'rgba(251,113,133,0.25)';
@@ -480,31 +680,33 @@ export default class Checkers extends BaseGame {
   #drawPieces(ctx) {
     for (let r = 0; r < N; r++) {
       for (let c = 0; c < N; c++) {
-        const v = this.cells[idx(r, c)];
+        const i = idx(r, c);
+        const v = this.cells[i];
         if (v === EMPTY) continue;
-        const x = BOARD_X + c * CELL + CELL / 2;
-        const y = BOARD_Y + r * CELL + CELL / 2;
-        const human = isHumanVal(v);
-        const king = isKingVal(v);
-        const color = human ? '#e9edf6' : '#1f2937';
-        const rim = human ? '#38bdf8' : '#fb7185';
-
-        ctx.save();
-        ctx.shadowColor = rim;
-        ctx.shadowBlur = 8;
-        ctx.fillStyle = color;
-        ctx.beginPath();
-        ctx.arc(x, y, CELL * 0.36, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.shadowBlur = 0;
-        ctx.strokeStyle = rim;
-        ctx.lineWidth = 2;
-        ctx.stroke();
-        if (king) {
-          this.text(ctx, '♛', x, y + 1, { size: CELL * 0.34, color: rim });
-        }
-        ctx.restore();
+        if (this.anim && i === this.anim.to) continue;
+        ctx.drawImage(this.sprites[v], BOARD_X + c * CELL, BOARD_Y + r * CELL, CELL, CELL);
       }
+    }
+
+    if (this.anim) {
+      const a = this.anim;
+      // Victims stay on the board until the hop actually clears them.
+      for (let j = a.capIndex; j < a.captured.length; j++) {
+        const ci = a.captured[j];
+        ctx.drawImage(this.sprites[a.capVals[j]], BOARD_X + (ci % N) * CELL, BOARD_Y + ((ci / N) | 0) * CELL, CELL, CELL);
+      }
+      const segs = a.steps.length - 1;
+      const p = Math.min(segs - 0.0001, (a.t / a.dur) * segs);
+      const k = Math.floor(p);
+      const f = smoothstep(p - k);
+      const s0 = a.steps[k];
+      const s1 = a.steps[k + 1];
+      const x = BOARD_X + (s0.c + (s1.c - s0.c) * f) * CELL;
+      const y = BOARD_Y + (s0.r + (s1.r - s0.r) * f) * CELL;
+      // A slight lift at mid-hop sells the piece leaving the surface.
+      const lift = 1 + Math.sin(f * Math.PI) * 0.1;
+      const off = (CELL * (lift - 1)) / 2;
+      ctx.drawImage(this.sprites[a.val], x - off, y - off, CELL * lift, CELL * lift);
     }
   }
 
@@ -519,3 +721,5 @@ export default class Checkers extends BaseGame {
     }
   }
 }
+
+const smoothstep = (t) => t * t * (3 - 2 * t);

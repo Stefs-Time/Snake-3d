@@ -41,11 +41,68 @@ export default class Paddles extends BaseGame {
 
     this.rally = 0;
     this.longestRally = 0;
+    this.ballPulse = 0;
     this.serveTo = 1; // 1 serves toward the opponent
+    this.#buildBackdrop();
     this.#serve();
 
     this.banner('First to 11');
     this.play('ready');
+  }
+
+  /**
+   * The court never changes, so the washes, the centre line and the rails are
+   * rendered once to an offscreen canvas at 2x and blitted every frame.
+   */
+  #buildBackdrop() {
+    const scale = 2;
+    const canvas = document.createElement('canvas');
+    canvas.width = W * scale;
+    canvas.height = H * scale;
+    const b = canvas.getContext('2d');
+    b.scale(scale, scale);
+
+    b.fillStyle = '#04060a';
+    b.fillRect(0, 0, W, H);
+    // Each player owns a faint wash of their own colour.
+    const wash = b.createLinearGradient(0, 0, W, 0);
+    wash.addColorStop(0, 'rgba(163,255,92,0.05)');
+    wash.addColorStop(0.5, 'rgba(4,6,10,0)');
+    wash.addColorStop(1, 'rgba(255,255,255,0.04)');
+    b.fillStyle = wash;
+    b.fillRect(0, 0, W, H);
+    const pool = b.createRadialGradient(W / 2, H / 2, 30, W / 2, H / 2, H * 0.85);
+    pool.addColorStop(0, 'rgba(0,229,255,0.06)');
+    pool.addColorStop(1, 'rgba(4,6,10,0)');
+    b.fillStyle = pool;
+    b.fillRect(0, 0, W, H);
+
+    b.strokeStyle = 'rgba(255,255,255,0.14)';
+    b.lineWidth = 3;
+    b.setLineDash([10, 14]);
+    b.beginPath();
+    b.moveTo(W / 2, 10);
+    b.lineTo(W / 2, H - 10);
+    b.stroke();
+    b.setLineDash([]);
+    b.strokeStyle = 'rgba(255,255,255,0.07)';
+    b.lineWidth = 2;
+    b.beginPath();
+    b.arc(W / 2, H / 2, 56, 0, Math.PI * 2);
+    b.stroke();
+
+    // The rails the ball bounces off.
+    b.strokeStyle = 'rgba(0,229,255,0.25)';
+    b.shadowColor = '#00e5ff';
+    b.shadowBlur = 8;
+    b.lineWidth = 2;
+    b.beginPath();
+    b.moveTo(6, 2);
+    b.lineTo(W - 6, 2);
+    b.moveTo(6, H - 2);
+    b.lineTo(W - 6, H - 2);
+    b.stroke();
+    this.backdrop = canvas;
   }
 
   #serve() {
@@ -74,6 +131,7 @@ export default class Paddles extends BaseGame {
 
   update(dt) {
     this.updateEffects(dt);
+    if (this.ballPulse > 0) this.ballPulse = Math.max(0, this.ballPulse - dt * 5);
     this.#updatePlayer(dt);
 
     if (this.waiting) {
@@ -92,7 +150,11 @@ export default class Paddles extends BaseGame {
     const previous = this.player.y;
 
     if (this.input.pointer.active) {
-      this.player.y += (this.input.pointer.y * H - this.player.y) * Math.min(1, dt * 16);
+      // `mouse` maps the pointer into playfield space with the HUD bands
+      // subtracted — raw pointer.y is normalised over the whole canvas,
+      // bands included, which put the paddle above the finger.
+      const target = clamp(this.mouse.y, PADDLE_H / 2, H - PADDLE_H / 2);
+      this.player.y += (target - this.player.y) * Math.min(1, dt * 16);
     }
     this.player.y += this.input.axisY() * 420 * dt;
     this.player.y = clamp(this.player.y, PADDLE_H / 2, H - PADDLE_H / 2);
@@ -138,7 +200,8 @@ export default class Paddles extends BaseGame {
 
   #updateBall(dt) {
     const ball = this.ball;
-    const steps = Math.max(1, Math.ceil((Math.abs(ball.vx) * dt) / (BALL * 0.8)));
+    const fastest = Math.max(Math.abs(ball.vx), Math.abs(ball.vy));
+    const steps = Math.max(1, Math.ceil((fastest * dt) / (BALL * 0.8)));
     const sdt = dt / steps;
 
     for (let s = 0; s < steps; s++) {
@@ -171,6 +234,7 @@ export default class Paddles extends BaseGame {
   }
 
   #wallBounce() {
+    this.ballPulse = Math.max(this.ballPulse, 0.5);
     this.play('bounce');
     this.particles.emit(this.ball.x, this.ball.y, {
       count: 4, speed: 70, color: '#8b93a7', life: 0.25, size: 2,
@@ -190,6 +254,8 @@ export default class Paddles extends BaseGame {
     // Paddle motion adds spin, so a moving paddle changes the return.
     ball.vy = Math.sin(angle) * ball.speed + clamp(paddleVelocity * 0.12, -110, 110);
     ball.x = direction > 0 ? 30 + PADDLE_W + BALL : W - 30 - PADDLE_W - BALL;
+
+    this.ballPulse = 1;
 
     // Points for keeping a rally alive, weighted toward long ones.
     this.addScore(5 + this.rally * 2);
@@ -217,6 +283,8 @@ export default class Paddles extends BaseGame {
 
     this.shake.add(7);
     this.meta = { rally: this.longestRally, match: `${this.player.score}-${this.opponent.score}` };
+    // Keep the HUD honest even on match point, when #serve never runs again.
+    this.host.setSecondary(`${this.player.score} - ${this.opponent.score}`);
 
     if (this.player.score >= WIN_SCORE) {
       this.addScore(2000);
@@ -239,16 +307,7 @@ export default class Paddles extends BaseGame {
     ctx.save();
     this.shake.apply(ctx);
 
-    /* --- centre line --- */
-    ctx.save();
-    ctx.strokeStyle = 'rgba(255,255,255,0.14)';
-    ctx.lineWidth = 3;
-    ctx.setLineDash([10, 14]);
-    ctx.beginPath();
-    ctx.moveTo(W / 2, 10);
-    ctx.lineTo(W / 2, H - 10);
-    ctx.stroke();
-    ctx.restore();
+    ctx.drawImage(this.backdrop, 0, 0, W, H);
 
     /* --- the match score, big and faint behind everything --- */
     this.text(ctx, String(this.player.score), W / 2 - 70, 56, {
@@ -258,25 +317,42 @@ export default class Paddles extends BaseGame {
       size: 52, color: 'rgba(255,255,255,0.22)',
     });
 
-    /* --- ball trail --- */
-    this.ball.trail.forEach((point, i) => {
-      const alpha = (1 - i / this.ball.trail.length) * 0.5;
-      ctx.save();
-      ctx.globalAlpha = alpha;
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(point.x - BALL / 2, point.y - BALL / 2, BALL, BALL);
-      ctx.restore();
-    });
+    /* --- ball trail, fading and shrinking as it ages --- */
+    ctx.save();
+    ctx.fillStyle = '#ffffff';
+    const trail = this.ball.trail;
+    for (let i = 0; i < trail.length; i++) {
+      const k = 1 - i / trail.length;
+      const s = BALL * (0.45 + k * 0.55);
+      ctx.globalAlpha = k * 0.4;
+      ctx.fillRect(trail[i].x - s / 2, trail[i].y - s / 2, s, s);
+    }
+    ctx.restore();
 
     /* --- paddles --- */
-    this.glowRect(ctx, 30, this.player.y - PADDLE_H / 2, PADDLE_W, PADDLE_H, '#a3ff5c', 18);
-    this.glowRect(ctx, W - 30 - PADDLE_W, this.opponent.y - PADDLE_H / 2, PADDLE_W, PADDLE_H, '#ffffff', 14);
+    this.#drawPaddle(ctx, 30, this.player.y, '#a3ff5c', 18);
+    this.#drawPaddle(ctx, W - 30 - PADDLE_W, this.opponent.y, '#ffffff', 14);
 
-    /* --- ball --- */
-    this.glowRect(ctx, this.ball.x - BALL / 2, this.ball.y - BALL / 2, BALL, BALL, '#ffffff', 18);
+    /* --- ball, swelling briefly off a bounce --- */
+    const pulse = this.ballPulse * this.ballPulse;
+    const size = BALL + pulse * 3;
+    this.glowRect(ctx, this.ball.x - size / 2, this.ball.y - size / 2, size, size, '#ffffff', 18 + pulse * 12);
 
     if (this.waiting) {
-      this.text(ctx, 'PRESS SPACE TO SERVE', W / 2, H - 46, {
+      // A gentle arrow showing which way the serve will go.
+      const throb = 0.45 + 0.3 * Math.sin(performance.now() / 300);
+      const ax = W / 2 + this.serveTo * 42;
+      ctx.save();
+      ctx.globalAlpha = throb;
+      ctx.fillStyle = '#ffd23f';
+      ctx.beginPath();
+      ctx.moveTo(ax, H / 2 - 7);
+      ctx.lineTo(ax + this.serveTo * 11, H / 2);
+      ctx.lineTo(ax, H / 2 + 7);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+      this.text(ctx, this.host.isTouch ? 'TAP SERVE TO PLAY' : 'PRESS SPACE TO SERVE', W / 2, H - 46, {
         size: 12, color: '#ffd23f', glow: 12,
       });
     }
@@ -287,6 +363,21 @@ export default class Paddles extends BaseGame {
     }
 
     this.drawEffects(ctx);
+    ctx.restore();
+  }
+
+  #drawPaddle(ctx, x, y, color, blur) {
+    ctx.save();
+    ctx.shadowColor = color;
+    ctx.shadowBlur = blur;
+    ctx.fillStyle = color;
+    this.roundRect(ctx, x, y - PADDLE_H / 2, PADDLE_W, PADDLE_H, 5);
+    ctx.fill();
+    // An inner sheen so the bat reads as a lit tube, not a flat bar.
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    this.roundRect(ctx, x + 2, y - PADDLE_H / 2 + 4, 2.5, PADDLE_H - 8, 2);
+    ctx.fill();
     ctx.restore();
   }
 }

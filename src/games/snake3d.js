@@ -109,7 +109,7 @@ export default class Snake3D extends BaseGame {
     this.renderer.toneMappingExposure = 1.15;
 
     this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.Fog(0x04060a, 18, 46);
+    this.scene.fog = new THREE.Fog(0x04060a, 20, 48);
 
     this.camera = new THREE.PerspectiveCamera(CHASE_FOV, 16 / 10, 0.1, 200);
     this.camera.position.set(0, 14, 16);
@@ -138,12 +138,28 @@ export default class Snake3D extends BaseGame {
     this.scene.add(this.foodLight);
 
     /* --- floor --- */
+    // A radial gradient baked once into the emissive map, so the centre of
+    // the arena carries a faint teal glow that falls away toward the rails.
+    const glowCanvas = document.createElement('canvas');
+    glowCanvas.width = glowCanvas.height = 128;
+    const glowCtx = glowCanvas.getContext('2d');
+    const glowGrad = glowCtx.createRadialGradient(64, 64, 10, 64, 64, 64);
+    glowGrad.addColorStop(0, '#ffffff');
+    glowGrad.addColorStop(1, '#000000');
+    glowCtx.fillStyle = glowGrad;
+    glowCtx.fillRect(0, 0, 128, 128);
+    const glowTex = new THREE.CanvasTexture(glowCanvas);
+    glowTex.colorSpace = THREE.SRGBColorSpace;
+
     const floor = new THREE.Mesh(
       new THREE.PlaneGeometry(GRID * CELL, GRID * CELL),
       new THREE.MeshStandardMaterial({
         color: 0x080b12,
         roughness: 0.72,
         metalness: 0.35,
+        emissive: 0x0a3346,
+        emissiveIntensity: 0.4,
+        emissiveMap: glowTex,
       }),
     );
     floor.rotation.x = -Math.PI / 2;
@@ -162,7 +178,13 @@ export default class Snake3D extends BaseGame {
     this.scene.add(
       new THREE.LineSegments(
         gridGeo,
-        new THREE.LineBasicMaterial({ color: 0x1b4a68, transparent: true, opacity: 0.55 }),
+        new THREE.LineBasicMaterial({
+          color: 0x1b4a68,
+          transparent: true,
+          opacity: 0.55,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        }),
       ),
     );
 
@@ -285,8 +307,9 @@ export default class Snake3D extends BaseGame {
     ];
     this.prevCells = this.cells.map((c) => ({ ...c }));
     this.direction = 'north';
-    this.queuedDirection = null;
+    this.turnQueue = [];
     this.pendingGrowth = 0;
+    this.headPulse = 0;
 
     this.stepInterval = 0.19;
     this.stepTimer = 0;
@@ -323,10 +346,12 @@ export default class Snake3D extends BaseGame {
     }
     if (!free.length) {
       // Filling the entire arena is a win; treat it as the run ending well.
+      this.foodCell = null;
       this.end();
       return;
     }
     this.foodCell = free[Math.floor(this.random() * free.length)];
+    this.foodAge = 0;
   }
 
   /* ============================================================== helpers */
@@ -388,6 +413,8 @@ export default class Snake3D extends BaseGame {
   update(dt) {
     this.updateEffects(dt);
     this.#updateDebris(dt);
+    this.headPulse = Math.max(0, this.headPulse - dt * 4);
+    this.foodAge += dt;
 
     if (this.dying) {
       this.deathTimer -= dt;
@@ -396,19 +423,21 @@ export default class Snake3D extends BaseGame {
       return;
     }
 
+    // Two turns can be banked, each judged against the one before it, so a
+    // quick corner is never dropped and never adds up to a reversal.
     const requested = this.#resolveInput();
-    if (requested && requested !== OPPOSITE[this.direction] && requested !== this.direction) {
-      this.queuedDirection = requested;
+    if (requested && this.turnQueue.length < 2) {
+      const heading = this.turnQueue[this.turnQueue.length - 1] ?? this.direction;
+      if (requested !== heading && requested !== OPPOSITE[heading]) {
+        this.turnQueue.push(requested);
+      }
     }
 
     if (this.readyTimer > 0) {
       this.readyTimer -= dt;
-      // Steering still registers during the countdown, so you can set off in
-      // whichever direction you like the moment it ends.
-      if (this.queuedDirection) {
-        this.direction = this.queuedDirection;
-        this.queuedDirection = null;
-      }
+      // Steering still registers during the countdown — it sits in the queue
+      // and plays out over the first steps, so you can set off in whichever
+      // direction you like the moment it ends.
       this.#updateCamera(dt, 0);
       return;
     }
@@ -424,9 +453,8 @@ export default class Snake3D extends BaseGame {
   }
 
   #step() {
-    if (this.queuedDirection) {
-      this.direction = this.queuedDirection;
-      this.queuedDirection = null;
+    if (this.turnQueue.length) {
+      this.direction = this.turnQueue.shift();
     }
 
     const delta = DIRECTIONS[this.direction];
@@ -486,6 +514,7 @@ export default class Snake3D extends BaseGame {
       this.play('eat');
     }
 
+    this.headPulse = 1;
     this.#burst(this.#worldOf(cell, 0), 0xffd23f, 14, 3.2);
     this.#placeFood();
   }
@@ -504,6 +533,7 @@ export default class Snake3D extends BaseGame {
     this.#burst(at, 0xff2e88, 40, 6);
     this.railMat.emissive.setHex(0xff2e88);
     this.segmentMaterial.emissive.setHex(0xff2e88);
+    this.headLight.color.setHex(0xff2e88);
   }
 
   /* ============================================================== effects */
@@ -641,7 +671,10 @@ export default class Snake3D extends BaseGame {
 
       this.dummy.position.set(pos.x, pos.y + wave, pos.z);
       this.dummy.rotation.set(0, 0, 0);
-      this.dummy.scale.setScalar(taper * (i === 0 ? 1.08 : 1));
+      // The head swells for a beat after a meal, then eases back down.
+      this.dummy.scale.setScalar(
+        taper * (i === 0 ? 1.08 + this.headPulse * this.headPulse * 0.3 : 1),
+      );
       this.dummy.updateMatrix();
       this.body.setMatrixAt(i, this.dummy.matrix);
 
@@ -657,7 +690,8 @@ export default class Snake3D extends BaseGame {
     /* --- head light rides the head --- */
     const head = this.#interpolatedSegment(0, blend, this.scratchC);
     this.headLight.position.set(head.x, head.y + 1.6, head.z);
-    this.headLight.intensity = this.dying ? 6 : 22;
+    const headGlow = this.dying ? 6 : 22 + this.headPulse * 10;
+    this.headLight.intensity += (headGlow - this.headLight.intensity) * 0.16;
 
     /* --- food --- */
     if (this.foodCell) {
@@ -666,7 +700,9 @@ export default class Snake3D extends BaseGame {
       this.food.position.set(fp.x, fp.y + 0.18 + Math.sin(t * 3) * 0.16, fp.z);
       this.food.rotation.y = t * 1.6;
       this.food.rotation.x = t * 0.9;
-      const pulse = 1 + Math.sin(t * 6) * 0.08;
+      // Each new food eases up from nothing rather than teleporting in.
+      const spawn = Math.min(1, this.foodAge * 3);
+      const pulse = (1 + Math.sin(t * 6) * 0.08) * spawn * (2 - spawn);
       this.food.scale.setScalar(pulse);
       this.foodLight.position.set(fp.x, fp.y + 1.2, fp.z);
       this.foodLight.intensity = 10 + Math.sin(t * 6) * 4;
@@ -679,7 +715,8 @@ export default class Snake3D extends BaseGame {
     if (!this.dying) {
       this.railMat.emissiveIntensity = 1.2 + Math.sin(t * 2) * 0.3;
     } else {
-      this.railMat.emissiveIntensity = 2 + Math.sin(t * 30) * 1.2;
+      // Death turns the rails hot, then lets them cool as the run winds down.
+      this.railMat.emissiveIntensity = 0.9 + Math.max(0, this.deathTimer / 1.15) * 1.8;
     }
 
     this.renderer.render(this.scene, this.camera);
@@ -700,8 +737,15 @@ export default class Snake3D extends BaseGame {
   teardown() {
     this.scene?.traverse((object) => {
       object.geometry?.dispose?.();
-      if (Array.isArray(object.material)) object.material.forEach((m) => m.dispose());
-      else object.material?.dispose?.();
+      const materials = Array.isArray(object.material) ? object.material : [object.material];
+      for (const m of materials) {
+        if (!m) continue;
+        m.map?.dispose?.();
+        m.emissiveMap?.dispose?.();
+        m.dispose();
+      }
+      // Instance attributes live on the GPU until the mesh itself is disposed.
+      if (object.isInstancedMesh) object.dispose();
     });
     this.renderer?.dispose();
     this.renderer?.forceContextLoss?.();

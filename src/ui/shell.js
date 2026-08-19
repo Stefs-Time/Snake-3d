@@ -88,9 +88,7 @@ export function mountShell(root) {
     if (key === 'credits' || key === '*') {
       creditsEl.querySelector('b').textContent = String(settings.get('credits'));
     }
-    if (key === 'crt' || key === '*') applyCrt();
   });
-  applyCrt();
   setupInstallPrompt();
 
   return viewport;
@@ -134,10 +132,6 @@ function renderSoundIcon() {
   const on = settings.get('sound');
   fill(soundBtn, icon(on ? 'sound' : 'mute', { size: 18 }));
   soundBtn.classList.toggle('is-on', on);
-}
-
-function applyCrt() {
-  document.documentElement.dataset.crt = settings.get('crt') ? 'on' : 'off';
 }
 
 /* ------------------------------------------------------------- install -- */

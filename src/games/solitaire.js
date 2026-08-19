@@ -41,6 +41,22 @@ const RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K']
 const RED = '#ff5c7a';
 const BLACK = '#e9edf6';
 
+/** Padding baked around each card sprite so its shadow has room to land. */
+const PAD = 5;
+
+/** Pip positions for 2–10, as [column, row] fractions of the pip box. */
+const PIPS = {
+  2: [[0.5, 0], [0.5, 1]],
+  3: [[0.5, 0], [0.5, 0.5], [0.5, 1]],
+  4: [[0, 0], [1, 0], [0, 1], [1, 1]],
+  5: [[0, 0], [1, 0], [0.5, 0.5], [0, 1], [1, 1]],
+  6: [[0, 0], [1, 0], [0, 0.5], [1, 0.5], [0, 1], [1, 1]],
+  7: [[0, 0], [1, 0], [0.5, 0.25], [0, 0.5], [1, 0.5], [0, 1], [1, 1]],
+  8: [[0, 0], [1, 0], [0.5, 0.25], [0, 0.5], [1, 0.5], [0.5, 0.75], [0, 1], [1, 1]],
+  9: [[0, 0], [1, 0], [0, 1 / 3], [1, 1 / 3], [0.5, 0.5], [0, 2 / 3], [1, 2 / 3], [0, 1], [1, 1]],
+  10: [[0, 0], [1, 0], [0.5, 1 / 6], [0, 1 / 3], [1, 1 / 3], [0, 2 / 3], [1, 2 / 3], [0.5, 5 / 6], [0, 1], [1, 1]],
+};
+
 export default class Solitaire extends BaseGame {
   static id = 'solitaire';
   static width = W;
@@ -75,12 +91,17 @@ export default class Solitaire extends BaseGame {
   setup() {
     this.host.setSecondaryLabel('Moves');
     this.setLives(1);
+    this.layers = new Map();
     this.drawCount = this.option('draw') === 'one' ? 1 : 3;
     this.#applyDrawHint();
 
     this.#deal();
     this.banner('Klondike');
     this.play('ready');
+  }
+
+  teardown() {
+    this.layers?.clear();
   }
 
   /* ================================================================ modes */
@@ -140,6 +161,7 @@ export default class Solitaire extends BaseGame {
     this.foundations = { S: [], H: [], C: [], D: [] };
 
     this.selection = null; // { from, index }
+    this.flipping = [];
     this.moves = 0;
     this.history = [];
     this.lastClick = { at: 0, key: '' };
@@ -176,6 +198,10 @@ export default class Solitaire extends BaseGame {
     this.score = s.score;
     this.moves = s.moves;
     this.selection = null;
+    this.flipping = [];
+    for (const pile of [...this.tableau, this.stock, this.waste, ...Object.values(this.foundations)]) {
+      for (const card of pile) card.flipT = 1;
+    }
     this.host.setScore(this.score);
     this.host.setSecondary(this.moves);
     this.play('back');
@@ -231,6 +257,8 @@ export default class Solitaire extends BaseGame {
     const top = pile[pile.length - 1];
     if (top && !top.faceUp) {
       top.faceUp = true;
+      top.flipT = 0;
+      this.flipping.push(top);
       this.#award(5);
       this.play('blip');
     }
@@ -247,7 +275,15 @@ export default class Solitaire extends BaseGame {
       this.#snapshot();
       this.#removeGrabbed(from, index);
       this.foundations[to.suit].push(lead);
-      this.#award(from.zone === 'tableau' ? 10 : 12);
+      const fi = SUITS.findIndex((s) => s.id === to.suit);
+      const fx = this.#foundationX(fi) + CARD_W / 2;
+      const fy = TOP_Y + CARD_H / 2;
+      this.#award(from.zone === 'tableau' ? 10 : 12, { x: fx, y: fy + CARD_H / 2 + 8, color: '#ffd23f' });
+      const done = this.foundations[to.suit].length === 13;
+      this.particles.emit(fx, fy, {
+        count: done ? 26 : 9, speed: done ? 160 : 110,
+        color: lead.red ? '#ff2e88' : '#00e5ff', life: 0.5, size: 2.6, shape: 'circle',
+      });
       this.play('powerup');
     } else if (to.zone === 'tableau') {
       if (!this.#canStackOnTableau(lead, this.tableau[to.col])) return false;
@@ -255,8 +291,8 @@ export default class Solitaire extends BaseGame {
       const moved = this.#removeGrabbed(from, index);
       this.tableau[to.col].push(...moved);
       // Pulling a card back out of a foundation costs what it earned.
-      if (from.zone === 'foundation') this.addScore(-12);
-      else this.addScore(1);
+      if (from.zone === 'foundation') this.addScore(-Math.min(this.score, Math.round(12 * this.#multiplier)));
+      else if (from.zone === 'waste') this.#award(1);
       this.play('select');
     } else {
       return false;
@@ -280,18 +316,20 @@ export default class Solitaire extends BaseGame {
   }
 
   #drawFromStock() {
+    if (!this.stock.length && !this.waste.length) return;
     this.#snapshot();
     if (!this.stock.length) {
-      if (!this.waste.length) return;
       // Recycling the waste costs points, as it does in the standard scoring.
-      this.stock = this.waste.reverse().map((c) => ({ ...c, faceUp: false }));
+      this.stock = this.waste.reverse().map((c) => ({ ...c, faceUp: false, flipT: 1 }));
       this.waste = [];
-      this.addScore(-20);
+      this.addScore(-Math.min(20, this.score));
       this.play('back');
     } else {
       for (let i = 0; i < this.drawCount && this.stock.length; i++) {
         const card = this.stock.pop();
         card.faceUp = true;
+        card.flipT = 0;
+        this.flipping.push(card);
         this.waste.push(card);
       }
       this.play('blip');
@@ -341,6 +379,10 @@ export default class Solitaire extends BaseGame {
 
   update(dt) {
     this.updateEffects(dt);
+    if (this.flipping.length) {
+      for (const card of this.flipping) card.flipT = Math.min(1, card.flipT + dt / 0.22);
+      if (this.flipping[0].flipT >= 1) this.flipping = this.flipping.filter((c) => c.flipT < 1);
+    }
     if (this.over) return;
 
     if (this.input.keyPressed('KeyU') || this.input.pressed('secondary')) {
@@ -449,7 +491,7 @@ export default class Solitaire extends BaseGame {
       // Walk from the bottom of the fan up, so the topmost card wins.
       for (let i = pile.length - 1; i >= 0; i--) {
         const cy = this.#tableauCardY(col, i);
-        const height = i === pile.length - 1 ? CARD_H : pile[i + 1].faceUp ? FAN_DOWN : FAN_HIDDEN;
+        const height = i === pile.length - 1 ? CARD_H : pile[i].faceUp ? FAN_DOWN : FAN_HIDDEN;
         if (y >= cy && y <= cy + height) return { zone: 'tableau', col, index: i };
       }
       if (y >= TABLEAU_Y && y <= TABLEAU_Y + this.#pileHeight(col)) {
@@ -462,14 +504,7 @@ export default class Solitaire extends BaseGame {
   /* ================================================================ draw */
 
   draw(ctx) {
-    this.clear(ctx, '#08110d');
-
-    // Baize: a soft green wash so it reads as a card table, not a void.
-    const grad = ctx.createRadialGradient(W / 2, H * 0.35, 40, W / 2, H * 0.5, W * 0.8);
-    grad.addColorStop(0, 'rgba(74, 222, 128, 0.10)');
-    grad.addColorStop(1, 'rgba(4, 12, 8, 0)');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, W, H);
+    ctx.drawImage(this.#felt(), 0, 0, W, H);
 
     ctx.save();
     this.shake.apply(ctx);
@@ -485,14 +520,16 @@ export default class Solitaire extends BaseGame {
 
   #slot(ctx, x, y, label) {
     ctx.save();
-    ctx.strokeStyle = 'rgba(255,255,255,0.14)';
+    ctx.fillStyle = 'rgba(0,0,0,0.22)';
+    this.roundRect(ctx, x, y, CARD_W, CARD_H, 9).fill();
+    ctx.strokeStyle = 'rgba(0,229,255,0.18)';
     ctx.setLineDash([5, 5]);
     ctx.lineWidth = 1.5;
-    this.roundRect(ctx, x, y, CARD_W, CARD_H, 9).stroke();
+    this.roundRect(ctx, x + 0.75, y + 0.75, CARD_W - 1.5, CARD_H - 1.5, 8).stroke();
     ctx.restore();
     if (label) {
       this.text(ctx, label, x + CARD_W / 2, y + CARD_H / 2, {
-        size: 26, color: 'rgba(255,255,255,0.16)',
+        size: 26, color: 'rgba(0,229,255,0.18)',
       });
     }
   }
@@ -559,72 +596,210 @@ export default class Solitaire extends BaseGame {
 
   /** `card` of null draws a face-down back. */
   #drawCard(ctx, x, y, card, { selected = false } = {}) {
-    ctx.save();
-
+    const yy = selected ? y - 3 : y;
     if (selected) {
+      ctx.save();
       ctx.shadowColor = '#ffd23f';
       ctx.shadowBlur = 18;
+      ctx.fillStyle = 'rgba(255,210,63,0.85)';
+      this.roundRect(ctx, x - 1.5, yy - 1.5, CARD_W + 3, CARD_H + 3, 10).fill();
+      ctx.restore();
     }
 
-    if (!card) {
-      // Back: deep indigo with a lattice.
-      ctx.fillStyle = '#161d33';
-      this.roundRect(ctx, x, y, CARD_W, CARD_H, 9).fill();
-      ctx.strokeStyle = 'rgba(0,229,255,0.30)';
-      ctx.lineWidth = 1.5;
-      this.roundRect(ctx, x + 0.75, y + 0.75, CARD_W - 1.5, CARD_H - 1.5, 8).stroke();
-      ctx.shadowBlur = 0;
-      ctx.strokeStyle = 'rgba(0,229,255,0.16)';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      for (let i = -CARD_H; i < CARD_W; i += 11) {
-        ctx.moveTo(x + i, y + CARD_H - 6);
-        ctx.lineTo(x + i + CARD_H - 12, y + 6);
+    // A mid-flip card squashes through its own midline.
+    const flip = card && card.flipT != null && card.flipT < 1 ? card.flipT : 1;
+    if (flip < 1) {
+      const w = Math.max(2, CARD_W * Math.abs(Math.cos(flip * Math.PI)));
+      const sprite = this.#cardSprite(flip > 0.5 ? card : null);
+      ctx.drawImage(sprite, x + (CARD_W - w) / 2 - PAD, yy - PAD, w + PAD * 2, CARD_H + PAD * 2);
+    } else {
+      ctx.drawImage(this.#cardSprite(card), x - PAD, yy - PAD, CARD_W + PAD * 2, CARD_H + PAD * 2);
+    }
+
+    if (selected) {
+      ctx.strokeStyle = '#ffd23f';
+      ctx.lineWidth = 2;
+      this.roundRect(ctx, x + 0.5, yy + 0.5, CARD_W - 1, CARD_H - 1, 9).stroke();
+    }
+  }
+
+  /* ============================================================= sprites */
+
+  /** Fetch-or-paint an offscreen layer, rendered once at device resolution. */
+  #layer(key, w, h, paint) {
+    let c = this.layers.get(key);
+    if (c) return c;
+    const dpr = Math.min(2, this.host.dpr || 1);
+    c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(w * dpr));
+    c.height = Math.max(1, Math.round(h * dpr));
+    const g = c.getContext('2d');
+    g.scale(dpr, dpr);
+    paint(g);
+    this.layers.set(key, c);
+    return c;
+  }
+
+  /** The baize, painted once: green wash, corner vignette, faint weave. */
+  #felt() {
+    return this.#layer('felt', W, H, (g) => {
+      g.fillStyle = '#07110c';
+      g.fillRect(0, 0, W, H);
+      const glow = g.createRadialGradient(W / 2, H * 0.35, 40, W / 2, H * 0.5, W * 0.8);
+      glow.addColorStop(0, 'rgba(74,222,128,0.11)');
+      glow.addColorStop(1, 'rgba(4,12,8,0)');
+      g.fillStyle = glow;
+      g.fillRect(0, 0, W, H);
+      const vig = g.createRadialGradient(W / 2, H / 2, H * 0.45, W / 2, H / 2, W * 0.78);
+      vig.addColorStop(0, 'rgba(0,0,0,0)');
+      vig.addColorStop(1, 'rgba(0,0,0,0.4)');
+      g.fillStyle = vig;
+      g.fillRect(0, 0, W, H);
+      g.fillStyle = 'rgba(255,255,255,0.02)';
+      for (let y = 8; y < H; y += 16) {
+        for (let x = 8; x < W; x += 16) g.fillRect(x, y, 1, 1);
       }
-      ctx.save();
-      this.roundRect(ctx, x + 6, y + 6, CARD_W - 12, CARD_H - 12, 5).clip();
-      ctx.stroke();
-      ctx.restore();
-      ctx.restore();
-      return;
+    });
+  }
+
+  #cardSprite(card) {
+    const key = card ? `card:${card.rank}${card.suit}` : 'back';
+    return this.#layer(key, CARD_W + PAD * 2, CARD_H + PAD * 2, (g) => {
+      if (card) this.#paintFace(g, PAD, PAD, card);
+      else this.#paintBack(g, PAD, PAD);
+    });
+  }
+
+  /** Crisp card face: top-lit body, corner indices, pips or a court panel. */
+  #paintFace(g, x, y, card) {
+    const s = CARD_W / 84;
+    g.save();
+    g.shadowColor = 'rgba(0,0,0,0.5)';
+    g.shadowBlur = 4;
+    g.shadowOffsetY = 1.5;
+    const body = g.createLinearGradient(0, y, 0, y + CARD_H);
+    body.addColorStop(0, '#ffffff');
+    body.addColorStop(0.12, '#f5f8fe');
+    body.addColorStop(1, '#dbe2f0');
+    g.fillStyle = body;
+    this.roundRect(g, x, y, CARD_W, CARD_H, 9 * s).fill();
+    g.restore();
+    g.strokeStyle = 'rgba(13,18,30,0.5)';
+    g.lineWidth = 1;
+    this.roundRect(g, x + 0.5, y + 0.5, CARD_W - 1, CARD_H - 1, 8.5 * s).stroke();
+    g.strokeStyle = 'rgba(255,255,255,0.75)';
+    this.roundRect(g, x + 1.5, y + 1.5, CARD_W - 3, CARD_H - 3, 7.5 * s).stroke();
+
+    g.fillStyle = card.red ? '#e11d55' : '#1c2230';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+
+    // Corner indices, the second rotated into the opposite corner.
+    for (const rot of [false, true]) {
+      g.save();
+      if (rot) {
+        g.translate(x * 2 + CARD_W, y * 2 + CARD_H);
+        g.rotate(Math.PI);
+      }
+      g.font = `700 ${Math.round(16 * s)}px ui-monospace, "SF Mono", Menlo, monospace`;
+      g.fillText(card.rank, x + 13 * s, y + 14 * s);
+      g.font = `${Math.round(13 * s)}px system-ui, sans-serif`;
+      g.fillText(card.glyph, x + 13 * s, y + 30 * s);
+      g.restore();
     }
 
-    ctx.fillStyle = '#f4f7ff';
-    this.roundRect(ctx, x, y, CARD_W, CARD_H, 9).fill();
-    ctx.shadowBlur = 0;
-    ctx.strokeStyle = selected ? '#ffd23f' : 'rgba(0,0,0,0.35)';
-    ctx.lineWidth = selected ? 2 : 1;
-    this.roundRect(ctx, x + 0.5, y + 0.5, CARD_W - 1, CARD_H - 1, 9).stroke();
+    const v = card.value;
+    if (v === 1) {
+      g.font = `${Math.round(46 * s)}px system-ui, sans-serif`;
+      g.shadowColor = card.red ? 'rgba(225,29,85,0.4)' : 'rgba(28,34,48,0.35)';
+      g.shadowBlur = 10 * s;
+      g.fillText(card.glyph, x + CARD_W / 2, y + CARD_H / 2 + 2 * s);
+    } else if (v >= 11) {
+      // Court cards get a double-ruled panel instead of a figure.
+      const px = x + 18 * s;
+      const py = y + 21 * s;
+      const pw = CARD_W - 36 * s;
+      const ph = CARD_H - 42 * s;
+      g.strokeStyle = card.red ? 'rgba(225,29,85,0.45)' : 'rgba(28,34,48,0.4)';
+      g.lineWidth = 1.2;
+      this.roundRect(g, px, py, pw, ph, 6 * s).stroke();
+      this.roundRect(g, px + 3 * s, py + 3 * s, pw - 6 * s, ph - 6 * s, 4 * s).stroke();
+      g.font = `700 ${Math.round(32 * s)}px ui-monospace, "SF Mono", Menlo, monospace`;
+      g.fillText(card.rank, x + CARD_W / 2, y + CARD_H / 2 - 8 * s);
+      g.font = `${Math.round(17 * s)}px system-ui, sans-serif`;
+      g.fillText(card.glyph, x + CARD_W / 2, y + CARD_H / 2 + 17 * s);
+    } else {
+      // Number cards carry their real pip layout, lower half upside down.
+      g.font = `${Math.round(15 * s)}px system-ui, sans-serif`;
+      const left = x + 26 * s;
+      const right = x + CARD_W - 26 * s;
+      const top = y + 25 * s;
+      const bottom = y + CARD_H - 25 * s;
+      for (const [cx, cy] of PIPS[v]) {
+        const px = left + (right - left) * cx;
+        const py = top + (bottom - top) * cy;
+        if (cy > 0.5) {
+          g.save();
+          g.translate(px, py);
+          g.rotate(Math.PI);
+          g.fillText(card.glyph, 0, s);
+          g.restore();
+        } else {
+          g.fillText(card.glyph, px, py + s);
+        }
+      }
+    }
+  }
 
-    const ink = card.red ? '#d81f4a' : '#141821';
-    ctx.fillStyle = ink;
-    ctx.textBaseline = 'top';
+  /** Card back: indigo body, cyan lattice, a twin-diamond neon motif. */
+  #paintBack(g, x, y) {
+    const s = CARD_W / 84;
+    g.save();
+    g.shadowColor = 'rgba(0,0,0,0.5)';
+    g.shadowBlur = 4;
+    g.shadowOffsetY = 1.5;
+    const body = g.createLinearGradient(0, y, 0, y + CARD_H);
+    body.addColorStop(0, '#1b2440');
+    body.addColorStop(1, '#111830');
+    g.fillStyle = body;
+    this.roundRect(g, x, y, CARD_W, CARD_H, 9 * s).fill();
+    g.restore();
+    g.strokeStyle = 'rgba(0,229,255,0.45)';
+    g.lineWidth = 1.4;
+    this.roundRect(g, x + 0.7, y + 0.7, CARD_W - 1.4, CARD_H - 1.4, 8 * s).stroke();
 
-    ctx.textAlign = 'left';
-    ctx.font = '700 17px ui-monospace, "SF Mono", Menlo, monospace';
-    ctx.fillText(card.rank, x + 7, y + 6);
-    ctx.font = '15px system-ui, sans-serif';
-    ctx.fillText(card.glyph, x + 7, y + 25);
+    g.save();
+    this.roundRect(g, x + 5 * s, y + 5 * s, CARD_W - 10 * s, CARD_H - 10 * s, 5 * s).clip();
+    g.strokeStyle = 'rgba(0,229,255,0.13)';
+    g.lineWidth = 1;
+    g.beginPath();
+    for (let i = -CARD_H; i < CARD_W + CARD_H; i += 9 * s) {
+      g.moveTo(x + i, y + CARD_H);
+      g.lineTo(x + i + CARD_H, y);
+      g.moveTo(x + i, y);
+      g.lineTo(x + i + CARD_H, y + CARD_H);
+    }
+    g.stroke();
+    g.restore();
+    g.strokeStyle = 'rgba(0,229,255,0.28)';
+    this.roundRect(g, x + 5 * s, y + 5 * s, CARD_W - 10 * s, CARD_H - 10 * s, 5 * s).stroke();
 
-    // The big centre pip.
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.font = '40px system-ui, sans-serif';
-    ctx.globalAlpha = 0.9;
-    ctx.fillText(card.glyph, x + CARD_W / 2, y + CARD_H / 2 + 4);
-    ctx.globalAlpha = 1;
-
-    // Mirrored index in the opposite corner.
-    ctx.save();
-    ctx.translate(x + CARD_W - 7, y + CARD_H - 6);
-    ctx.rotate(Math.PI);
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'top';
-    ctx.font = '700 17px ui-monospace, "SF Mono", Menlo, monospace';
-    ctx.fillText(card.rank, 0, 0);
-    ctx.restore();
-
-    ctx.restore();
+    const cx = x + CARD_W / 2;
+    const cy = y + CARD_H / 2;
+    g.save();
+    g.translate(cx, cy);
+    g.rotate(Math.PI / 4);
+    g.fillStyle = '#131b33';
+    g.fillRect(-17 * s, -17 * s, 34 * s, 34 * s);
+    g.strokeStyle = 'rgba(0,229,255,0.55)';
+    g.lineWidth = 1.4;
+    g.shadowColor = '#00e5ff';
+    g.shadowBlur = 8;
+    g.strokeRect(-13 * s, -13 * s, 26 * s, 26 * s);
+    g.strokeStyle = 'rgba(255,46,136,0.6)';
+    g.shadowColor = '#ff2e88';
+    g.strokeRect(-6 * s, -6 * s, 12 * s, 12 * s);
+    g.restore();
   }
 }
 

@@ -240,6 +240,7 @@ export default class Bulwark extends BaseGame {
     // One road, drawn now, for the whole run.
     this.#buildPath(this.#randomWaypoints());
     this.#applyPace(this.option('pace'));
+    this.mapCanvas = null;
 
     this.gold = 220;
     this.health = KEEP_HEALTH;
@@ -570,6 +571,8 @@ export default class Bulwark extends BaseGame {
       slowImmune: !!def.slowImmune,
       aura: !!def.aura,
       distance: 0,
+      x: this.path[0][0],
+      y: this.path[0][1],
       slowUntil: 0,
       slowFactor: 1,
       hitFlash: 0,
@@ -664,16 +667,18 @@ export default class Bulwark extends BaseGame {
    */
   #shieldFactor(enemy) {
     if (!this.wardens.length) return 1;
-    const [ex, ey] = this.#pointAt(enemy.distance);
     for (const warden of this.wardens) {
       if (warden === enemy || warden.hp <= 0) continue;
-      const [wx, wy] = this.#pointAt(warden.distance);
-      if (Math.hypot(ex - wx, ey - wy) <= WARDEN_AURA) return 1 - WARDEN_SHIELD;
+      if (Math.hypot(enemy.x - warden.x, enemy.y - warden.y) <= WARDEN_AURA) return 1 - WARDEN_SHIELD;
     }
     return 1;
   }
 
   #damage(enemy, amount, source) {
+    // A corpse pays no second bounty — two shots landing in the same tick used
+    // to collect the same enemy's gold twice.
+    if (enemy.hp <= 0) return;
+
     // Armour is flat reduction against a *proportional* floor. A flat floor of
     // one point meant a fast cheap tower always did something; a percentage
     // floor means a big hit gets more through armour than many small ones,
@@ -688,9 +693,10 @@ export default class Bulwark extends BaseGame {
     }
     if (enemy.hp > 0) return;
 
-    const [x, y] = this.#pointAt(enemy.distance);
+    const { x, y } = enemy;
     this.gold += enemy.gold;
     this.#award(enemy.gold * 6);
+    if (enemy.gold >= 20) this.popups.add(x, y, `+${enemy.gold}g`, '#fbbf24');
     this.particles.emit(x, y, {
       count: enemy.kind === 'boss' ? 30 : 10,
       speed: 130, color: enemy.color, life: 0.5, size: 3,
@@ -716,36 +722,38 @@ export default class Bulwark extends BaseGame {
     const stats = this.#stats(tower);
 
     // Always the enemy furthest along the road — the only one that matters.
+    // Corpses from earlier in this same tick are not worth a cooldown.
     let target = null;
     for (const enemy of this.enemies) {
-      const [x, y] = this.#pointAt(enemy.distance);
-      if (Math.hypot(x - tower.x, y - tower.y) > stats.range) continue;
+      if (enemy.hp <= 0) continue;
+      if (Math.hypot(enemy.x - tower.x, enemy.y - tower.y) > stats.range) continue;
       if (!target || enemy.distance > target.distance) target = enemy;
     }
     if (!target) return;
 
-    const [tx, ty] = this.#pointAt(target.distance);
-    tower.angle = Math.atan2(ty - tower.y, tx - tower.x);
+    tower.angle = Math.atan2(target.y - tower.y, target.x - tower.x);
     tower.cooldown += stats.cooldown;
 
     if (stats.chains) {
       // Tesla hits instantly, arcing to the nearest few in range.
       const inRange = this.enemies
-        .map((e) => ({ e, p: this.#pointAt(e.distance) }))
-        .filter(({ p }) => Math.hypot(p[0] - tower.x, p[1] - tower.y) <= stats.range)
-        .sort((a, b) => b.e.distance - a.e.distance)
+        .filter((e) => e.hp > 0 && Math.hypot(e.x - tower.x, e.y - tower.y) <= stats.range)
+        .sort((a, b) => b.distance - a.distance)
         .slice(0, stats.chains);
 
-      for (const { e, p } of inRange) {
+      for (const e of inRange) {
         this.#damage(e, stats.damage, stats);
-        this.arcs.push({ x1: tower.x, y1: tower.y, x2: p[0], y2: p[1], life: 0.12 });
+        this.arcs.push({ x1: tower.x, y1: tower.y, x2: e.x, y2: e.y, life: 0.12 });
       }
       this.play('laser');
       return;
     }
 
+    const dist = Math.hypot(target.x - tower.x, target.y - tower.y) || 1;
     this.shots.push({
       x: tower.x, y: tower.y,
+      dx: (target.x - tower.x) / dist,
+      dy: (target.y - tower.y) / dist,
       target,
       speed: stats.speed,
       damage: stats.damage,
@@ -753,40 +761,54 @@ export default class Bulwark extends BaseGame {
       slow: stats.slow,
       color: stats.color,
     });
+    if (tower.type === 'cannon' || tower.type === 'lance') {
+      this.particles.emit(
+        tower.x + Math.cos(tower.angle) * CELL * 0.45,
+        tower.y + Math.sin(tower.angle) * CELL * 0.45,
+        { count: 4, speed: 90, angle: tower.angle, spread: 0.7, color: stats.color, life: 0.18, size: 2 },
+      );
+    }
     this.play(tower.type === 'cannon' || tower.type === 'lance' ? 'drop' : 'blip');
   }
 
   #updateShots(dt) {
     for (const shot of this.shots) {
-      const [tx, ty] = this.#pointAt(shot.target.distance);
-      const dx = tx - shot.x;
-      const dy = ty - shot.y;
+      const dx = shot.target.x - shot.x;
+      const dy = shot.target.y - shot.y;
       const dist = Math.hypot(dx, dy);
       const step = shot.speed * dt;
 
-      if (dist <= step || shot.target.hp <= 0) {
+      // A target that walked into the keep is gone — the shot detonates where
+      // it is rather than paying a bounty on something already inside.
+      if (dist <= step || shot.target.hp <= 0 || shot.target.leaked) {
         shot.hit = true;
-        shot.x = tx;
-        shot.y = ty;
+        shot.x = shot.target.x;
+        shot.y = shot.target.y;
 
         if (shot.splash > 0) {
           for (const enemy of this.enemies) {
-            const [ex, ey] = this.#pointAt(enemy.distance);
-            if (Math.hypot(ex - shot.x, ey - shot.y) <= shot.splash) {
+            if (Math.hypot(enemy.x - shot.x, enemy.y - shot.y) <= shot.splash) {
               this.#damage(enemy, shot.damage, shot);
             }
           }
           this.particles.emit(shot.x, shot.y, {
             count: 10, speed: 110, color: shot.color, life: 0.35, size: 2.6,
           });
-        } else if (shot.target.hp > 0) {
+        } else if (shot.target.hp > 0 && !shot.target.leaked) {
           this.#damage(shot.target, shot.damage, shot);
+          this.particles.emit(shot.x, shot.y, {
+            count: 3, speed: 70, color: shot.color, life: 0.22, size: 1.8,
+          });
         }
         continue;
       }
 
-      shot.x += (dx / dist) * step;
-      shot.y += (dy / dist) * step;
+      if (dist > 0.0001) {
+        shot.dx = dx / dist;
+        shot.dy = dy / dist;
+      }
+      shot.x += shot.dx * step;
+      shot.y += shot.dy * step;
     }
     this.shots = this.shots.filter((s) => !s.hit);
   }
@@ -849,12 +871,20 @@ export default class Bulwark extends BaseGame {
         if (enemy.slowUntil <= 0) enemy.slowFactor = 1;
       }
       enemy.distance += enemy.speed * enemy.slowFactor * dt;
+      const [ex, ey] = this.#pointAt(enemy.distance);
+      enemy.x = ex;
+      enemy.y = ey;
 
       if (enemy.distance >= this.pathLength) {
         enemy.leaked = true;
         // Tougher enemies do more damage when they get through.
         this.health -= LEAK_DAMAGE[enemy.kind] ?? 1;
         this.leaked++;
+        this.particles.emit(ex, ey, {
+          count: 12, speed: 120, angle: Math.PI, spread: Math.PI * 0.9,
+          color: '#fb7185', life: 0.5, size: 2.6,
+        });
+        this.popups.add(ex - 20, ey - 14, `-${LEAK_DAMAGE[enemy.kind] ?? 1}`, '#fb7185');
         this.play('die');
         this.shake.add(7);
       }
@@ -982,51 +1012,126 @@ export default class Bulwark extends BaseGame {
     ctx.restore();
   }
 
+  /**
+   * Everything about the map that never changes — ground, grid, road, gate
+   * and keep — rendered once to an offscreen canvas. The road alone is two
+   * wide round-joined strokes; paying for them on every frame bought nothing.
+   */
+  #mapLayer() {
+    if (this.mapCanvas) return this.mapCanvas;
+    const dpr = Math.min(2, this.host.dpr || 1);
+    const c = document.createElement('canvas');
+    c.width = Math.round(W * dpr);
+    c.height = Math.round(H * dpr);
+    const g = c.getContext('2d');
+    g.scale(dpr, dpr);
+
+    /* --- ground --- */
+    const ground = g.createLinearGradient(0, MAP_Y, 0, MAP_Y + MAP_H);
+    ground.addColorStop(0, '#0e1712');
+    ground.addColorStop(0.55, '#0c1410');
+    ground.addColorStop(1, '#090f0b');
+    g.fillStyle = ground;
+    g.fillRect(MAP_X, MAP_Y, MAP_W, MAP_H);
+
+    g.strokeStyle = 'rgba(255,255,255,0.035)';
+    g.lineWidth = 1;
+    g.beginPath();
+    for (let col = 1; col < COLS; col++) {
+      g.moveTo(MAP_X + col * CELL, MAP_Y);
+      g.lineTo(MAP_X + col * CELL, MAP_Y + MAP_H);
+    }
+    for (let row = 1; row < ROWS; row++) {
+      g.moveTo(MAP_X, MAP_Y + row * CELL);
+      g.lineTo(MAP_X + MAP_W, MAP_Y + row * CELL);
+    }
+    g.stroke();
+
+    /* --- the road: a dark bed with a lit surface set into it --- */
+    const trace = () => {
+      g.beginPath();
+      this.path.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
+    };
+    g.lineJoin = 'round';
+    g.lineCap = 'round';
+    g.save();
+    g.shadowColor = 'rgba(163,230,53,0.35)';
+    g.shadowBlur = 14;
+    g.strokeStyle = '#131c14';
+    g.lineWidth = CELL * 0.96;
+    trace();
+    g.stroke();
+    g.restore();
+    g.strokeStyle = '#1e2a22';
+    g.lineWidth = CELL * 0.78;
+    trace();
+    g.stroke();
+    g.strokeStyle = 'rgba(163,230,53,0.05)';
+    g.lineWidth = CELL * 0.96;
+    trace();
+    g.stroke();
+
+    /* --- vignette, so the field falls away at the edges --- */
+    const vin = g.createRadialGradient(
+      MAP_X + MAP_W / 2, MAP_Y + MAP_H / 2, MAP_H * 0.35,
+      MAP_X + MAP_W / 2, MAP_Y + MAP_H / 2, MAP_W * 0.72,
+    );
+    vin.addColorStop(0, 'rgba(0,0,0,0)');
+    vin.addColorStop(1, 'rgba(0,0,0,0.38)');
+    g.fillStyle = vin;
+    g.fillRect(MAP_X, MAP_Y, MAP_W, MAP_H);
+
+    g.strokeStyle = 'rgba(163,230,53,0.12)';
+    g.lineWidth = 1;
+    g.strokeRect(MAP_X + 0.5, MAP_Y + 0.5, MAP_W - 1, MAP_H - 1);
+
+    /* --- gate and keep --- */
+    const [gx, gy] = this.path[0];
+    const [kx, ky] = this.path[this.path.length - 1];
+    this.text(g, 'GATE', gx + 26, gy - 22, { size: 9, color: '#5c6478' });
+    g.save();
+    g.fillStyle = '#a3e635';
+    g.shadowColor = '#a3e635';
+    g.shadowBlur = 10;
+    g.beginPath();
+    g.moveTo(gx + 12, gy - 9);
+    g.lineTo(gx + 20, gy);
+    g.lineTo(gx + 12, gy + 9);
+    g.closePath();
+    g.fill();
+    g.restore();
+    this.glowRect(g, kx - 12, ky - CELL / 2, 10, CELL, '#fb7185', 14);
+    g.fillStyle = 'rgba(251,113,133,0.35)';
+    g.fillRect(kx - 14, ky - CELL / 2 - 4, 14, 3);
+    g.fillRect(kx - 14, ky + CELL / 2 + 1, 14, 3);
+    this.text(g, 'KEEP', kx - 26, ky - 26, { size: 9, color: '#fb7185' });
+
+    /* --- the panel's well --- */
+    g.fillStyle = 'rgba(255,255,255,0.02)';
+    this.roundRect(g, PANEL_X - 10, MAP_Y - 8, PANEL_W + 20, MAP_H + 16, 12).fill();
+    g.strokeStyle = 'rgba(255,255,255,0.05)';
+    g.lineWidth = 1;
+    this.roundRect(g, PANEL_X - 10, MAP_Y - 8, PANEL_W + 20, MAP_H + 16, 12).stroke();
+
+    this.mapCanvas = c;
+    return c;
+  }
+
   #drawMap(ctx) {
-    ctx.save();
-    ctx.fillStyle = '#0c1410';
-    ctx.fillRect(MAP_X, MAP_Y, MAP_W, MAP_H);
-
-    ctx.strokeStyle = 'rgba(255,255,255,0.035)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    for (let c = 1; c < COLS; c++) {
-      ctx.moveTo(MAP_X + c * CELL, MAP_Y);
-      ctx.lineTo(MAP_X + c * CELL, MAP_Y + MAP_H);
-    }
-    for (let r = 1; r < ROWS; r++) {
-      ctx.moveTo(MAP_X, MAP_Y + r * CELL);
-      ctx.lineTo(MAP_X + MAP_W, MAP_Y + r * CELL);
-    }
-    ctx.stroke();
-    ctx.restore();
-
-    /* --- the road --- */
-    ctx.save();
-    ctx.strokeStyle = '#1e2a22';
-    ctx.lineWidth = CELL * 0.86;
-    ctx.lineJoin = 'round';
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    this.path.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
-    ctx.stroke();
+    ctx.drawImage(this.#mapLayer(), 0, 0, W, H);
 
     // A dashed centre line that crawls, so the direction of travel is obvious.
+    ctx.save();
     ctx.strokeStyle = 'rgba(163,230,53,0.28)';
     ctx.lineWidth = 2;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
     ctx.setLineDash([9, 13]);
     ctx.lineDashOffset = -(performance.now() / 40) % 22;
     ctx.beginPath();
     this.path.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
     ctx.stroke();
     ctx.restore();
-
-    /* --- gate and keep --- */
-    const [gx, gy] = this.path[0];
-    const [kx, ky] = this.path[this.path.length - 1];
-    this.text(ctx, 'GATE', gx + 26, gy - 22, { size: 9, color: '#5c6478' });
-    this.glowRect(ctx, kx - 12, ky - CELL / 2, 10, CELL, '#fb7185', 14);
-    this.text(ctx, 'KEEP', kx - 26, ky - 26, { size: 9, color: '#fb7185' });
 
     /* --- placement preview --- */
     const m = this.mouse;
@@ -1120,6 +1225,9 @@ export default class Bulwark extends BaseGame {
       ctx.save();
       ctx.fillStyle = '#131c18';
       this.roundRect(ctx, tower.x - CELL / 2 + 3, tower.y - CELL / 2 + 3, CELL - 6, CELL - 6, 7).fill();
+      // The base warms with each level, so a maxed tower reads at a glance.
+      ctx.fillStyle = `${def.color}${tower.level === 3 ? '30' : tower.level === 2 ? '1e' : '10'}`;
+      this.roundRect(ctx, tower.x - CELL / 2 + 3, tower.y - CELL / 2 + 3, CELL - 6, CELL - 6, 7).fill();
       ctx.strokeStyle = selected ? '#ffffff' : def.color;
       ctx.lineWidth = selected ? 2 : 1.4;
       ctx.shadowColor = def.color;
@@ -1158,7 +1266,7 @@ export default class Bulwark extends BaseGame {
     // The shield bubbles go down first so every protected body sits inside one
     // — you can see what a Warden is worth without reading a number.
     for (const warden of this.wardens) {
-      const [x, y] = this.#pointAt(warden.distance);
+      const { x, y } = warden;
       ctx.save();
       ctx.strokeStyle = 'rgba(45,212,191,0.28)';
       ctx.fillStyle = 'rgba(45,212,191,0.06)';
@@ -1171,14 +1279,17 @@ export default class Bulwark extends BaseGame {
       ctx.restore();
     }
 
+    ctx.save();
     for (const enemy of this.enemies) {
-      const [x, y] = this.#pointAt(enemy.distance);
+      const { x, y } = enemy;
       const chilled = enemy.slowUntil > 0;
 
-      ctx.save();
-      ctx.fillStyle = enemy.hitFlash > 0 ? '#ffffff' : chilled ? '#7dd3fc' : enemy.color;
+      // Glow is spent on the big kinds only — a late swarm is forty bodies,
+      // and forty shadowBlur fills a frame is a phone dropping to 40fps.
+      const big = enemy.radius >= 13;
       ctx.shadowColor = enemy.color;
-      ctx.shadowBlur = 8;
+      ctx.shadowBlur = big ? 10 : 0;
+      ctx.fillStyle = enemy.hitFlash > 0 ? '#ffffff' : chilled ? '#7dd3fc' : enemy.color;
       ctx.beginPath();
       const r = enemy.radius;
       if (enemy.kind === 'tank' || enemy.kind === 'boss') {
@@ -1204,7 +1315,15 @@ export default class Bulwark extends BaseGame {
         ctx.arc(x, y, r, 0, Math.PI * 2);
       }
       ctx.fill();
-      ctx.restore();
+      ctx.shadowBlur = 0;
+
+      // A small top-light, so the round kinds read as bodies rather than dots.
+      if (enemy.hitFlash <= 0 && !big && enemy.kind !== 'shade') {
+        ctx.fillStyle = 'rgba(255,255,255,0.22)';
+        ctx.beginPath();
+        ctx.arc(x - r * 0.28, y - r * 0.3, r * 0.34, 0, Math.PI * 2);
+        ctx.fill();
+      }
 
       // Health bar, only once it means something.
       if (enemy.hp < enemy.maxHp) {
@@ -1215,9 +1334,24 @@ export default class Bulwark extends BaseGame {
         ctx.fillRect(x - w / 2, y - enemy.radius - 8, w * (enemy.hp / enemy.maxHp), 4);
       }
     }
+    ctx.restore();
   }
 
   #drawShots(ctx) {
+    ctx.save();
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    for (const shot of this.shots) {
+      // A short tracer behind the round, along its direction of travel.
+      const tail = shot.splash > 0 ? 10 : 15;
+      ctx.strokeStyle = shot.color;
+      ctx.globalAlpha = 0.35;
+      ctx.beginPath();
+      ctx.moveTo(shot.x - shot.dx * tail, shot.y - shot.dy * tail);
+      ctx.lineTo(shot.x, shot.y);
+      ctx.stroke();
+    }
+    ctx.restore();
     for (const shot of this.shots) {
       this.glowCircle(ctx, shot.x, shot.y, shot.splash > 0 ? 5 : 3, shot.color, 10);
     }
@@ -1233,8 +1367,8 @@ export default class Bulwark extends BaseGame {
       const segments = 5;
       for (let i = 0; i <= segments; i++) {
         const t = i / segments;
-        const x = arc.x1 + (arc.x2 - arc.x1) * t + (i && i < segments ? (this.random() - 0.5) * 12 : 0);
-        const y = arc.y1 + (arc.y2 - arc.y1) * t + (i && i < segments ? (this.random() - 0.5) * 12 : 0);
+        const x = arc.x1 + (arc.x2 - arc.x1) * t + (i && i < segments ? (Math.random() - 0.5) * 12 : 0);
+        const y = arc.y1 + (arc.y2 - arc.y1) * t + (i && i < segments ? (Math.random() - 0.5) * 12 : 0);
         i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
       }
       ctx.stroke();

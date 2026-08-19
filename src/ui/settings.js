@@ -18,11 +18,6 @@ export function renderSettings() {
       note: 'Applies to all cabinets.',
     }),
     toggleRow({
-      key: 'crt',
-      title: 'CRT overlay',
-      note: 'Scanlines, vignette and the occasional flicker. Turn it off for a flat, modern look.',
-    }),
-    toggleRow({
       key: 'shake',
       title: 'Screen shake',
       note: 'Impacts nudge the screen. Disable if it bothers you — it changes nothing about play.',

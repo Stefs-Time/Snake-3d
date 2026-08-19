@@ -32,7 +32,13 @@ const TIERS = {
   512: ['#ffd23f', '#04060a'],
   1024: ['#ff9f43', '#04060a'],
   2048: ['#ff2e88', '#ffffff'],
+  4096: ['#b47bff', '#ffffff'],
+  8192: ['#7c3aed', '#ffffff'],
 };
+
+/** Cached sprites render at 2x so the scaled canvas stays crisp on phones. */
+const SPRITE_SCALE = 2;
+const TILE_PAD = 16;
 
 export default class Twenty48 extends BaseGame {
   static id = 'twenty48';
@@ -56,9 +62,16 @@ export default class Twenty48 extends BaseGame {
     this.history = null;
     this.won = false;
     this.best = 0;
+    this.pendingSpawn = false;
+    this.mergedCells = [];
+    this.pendingGain = 0;
+
+    this.tileSprites = new Map();
+    this.backdrop = this.#makeBackdrop();
 
     this.#spawnTile();
     this.#spawnTile();
+    this.#refreshBest();
 
     this.banner('Slide to merge');
     this.play('ready');
@@ -135,7 +148,9 @@ export default class Twenty48 extends BaseGame {
 
   /** @param {'up'|'down'|'left'|'right'} direction */
   #slide(direction) {
-    if (this.animations.length) return false;
+    // A slide may begin while spawn pops are still settling — only an
+    // unresolved slide blocks input, so quick swipes are never eaten.
+    if (this.pendingSpawn || this.animations.some((a) => a.type === 'slide')) return false;
 
     const before = this.grid.map((row) => [...row]);
     const beforeScore = this.score;
@@ -180,6 +195,17 @@ export default class Twenty48 extends BaseGame {
 
     this.history = { grid: before, score: beforeScore };
 
+    this.mergedCells = [];
+    const seen = new Set();
+    for (const move of moves) {
+      if (!move.merged) continue;
+      const key = `${move.to[0]},${move.to[1]}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      this.mergedCells.push({ r: move.to[0], c: move.to[1], value: move.result });
+    }
+    this.pendingGain = gained;
+
     if (gained) {
       this.addScore(gained);
       this.play('merge');
@@ -194,13 +220,24 @@ export default class Twenty48 extends BaseGame {
   }
 
   #undo() {
-    if (!this.history || this.animations.length) return;
+    if (!this.history || this.pendingSpawn || this.animations.some((a) => a.type === 'slide')) return;
     this.grid = this.history.grid.map((row) => [...row]);
     this.score = this.history.score;
     this.host.setScore(this.score);
     this.history = null;
+    this.animations = [];
+    this.#refreshBest();
     this.play('back');
     this.banner('Undo');
+  }
+
+  #refreshBest() {
+    let best = 0;
+    for (const row of this.grid) for (const v of row) best = Math.max(best, v);
+    this.best = best;
+    this.host.setSecondary(best);
+    this.meta = { tile: best };
+    return best;
   }
 
   /* =============================================================== update */
@@ -212,19 +249,22 @@ export default class Twenty48 extends BaseGame {
       this.animTimer -= dt;
       for (const anim of this.animations) anim.t += dt;
       if (this.animTimer <= 0) {
-        this.animations = this.animations.filter((a) => a.type === 'spawn' && a.t < SPAWN_TIME);
+        this.animations = this.animations.filter((a) => a.type !== 'slide' && a.t < SPAWN_TIME);
         if (this.pendingSpawn) {
           this.pendingSpawn = false;
+          this.#landMerges();
           this.#spawnTile();
           this.animTimer = SPAWN_TIME;
           this.#afterMove();
         }
       }
-      return;
+      if (this.pendingSpawn) return;
+    } else {
+      for (const anim of this.animations) anim.t += dt;
+      this.animations = this.animations.filter((a) => a.t < SPAWN_TIME);
     }
 
-    for (const anim of this.animations) anim.t += dt;
-    this.animations = this.animations.filter((a) => a.t < SPAWN_TIME);
+    if (this.over) return;
 
     if (this.input.keyPressed('KeyU') || this.input.pressed('secondary')) {
       this.#undo();
@@ -235,12 +275,31 @@ export default class Twenty48 extends BaseGame {
     if (direction) this.#slide(direction);
   }
 
+  /** The merged tiles have arrived: pop them and show what they paid. */
+  #landMerges() {
+    for (const { r, c, value } of this.mergedCells) {
+      this.animations.push({ type: 'pop', r, c, t: 0 });
+      const { x, y } = this.#cellPos(r, c);
+      const [bg] = TIERS[value] ?? ['#ff2e88'];
+      this.particles.emit(x + CELL / 2, y + CELL / 2, {
+        count: value >= 128 ? 10 : 6,
+        speed: 90,
+        color: value >= 8 ? bg : '#7f9cc4',
+        life: 0.35,
+        size: 2.4,
+      });
+    }
+    if (this.pendingGain && this.mergedCells.length) {
+      const top = this.mergedCells.reduce((a, b) => (b.value > a.value ? b : a));
+      const { x, y } = this.#cellPos(top.r, top.c);
+      this.popups.add(x + CELL / 2, y + CELL / 2, `+${this.pendingGain}`, '#ffd23f', 15);
+    }
+    this.mergedCells = [];
+    this.pendingGain = 0;
+  }
+
   #afterMove() {
-    let best = 0;
-    for (const row of this.grid) for (const v of row) best = Math.max(best, v);
-    this.best = best;
-    this.host.setSecondary(best);
-    this.meta = { tile: best };
+    const best = this.#refreshBest();
 
     if (best >= 2048 && !this.won) {
       this.won = true;
@@ -263,18 +322,7 @@ export default class Twenty48 extends BaseGame {
     this.shake.apply(ctx);
 
     /* --- board --- */
-    ctx.fillStyle = 'rgba(255,255,255,0.035)';
-    roundRect(ctx, PAD, PAD, BOARD, BOARD, 10);
-    ctx.fill();
-
-    for (let r = 0; r < N; r++) {
-      for (let c = 0; c < N; c++) {
-        const { x, y } = this.#cellPos(r, c);
-        ctx.fillStyle = 'rgba(255,255,255,0.04)';
-        roundRect(ctx, x, y, CELL, CELL, 7);
-        ctx.fill();
-      }
-    }
+    ctx.drawImage(this.backdrop, 0, 0, W, H);
 
     /* --- tiles that are mid-slide --- */
     const sliding = this.animations.filter((a) => a.type === 'slide');
@@ -308,7 +356,12 @@ export default class Twenty48 extends BaseGame {
           const spawn = this.animations.find(
             (a) => a.type === 'spawn' && a.r === r && a.c === c && a.t < SPAWN_TIME,
           );
-          const scale = spawn ? 0.35 + easeOut(spawn.t / SPAWN_TIME) * 0.65 : 1;
+          const pop = spawn ? null : this.animations.find(
+            (a) => a.type === 'pop' && a.r === r && a.c === c && a.t < SPAWN_TIME,
+          );
+          let scale = 1;
+          if (spawn) scale = 0.35 + easeOut(spawn.t / SPAWN_TIME) * 0.65;
+          else if (pop) scale = 1 + Math.sin(Math.PI * Math.min(1, pop.t / SPAWN_TIME)) * 0.12;
           const { x, y } = this.#cellPos(r, c);
           this.#tile(ctx, x, y, value, scale);
         }
@@ -327,29 +380,99 @@ export default class Twenty48 extends BaseGame {
   }
 
   #tile(ctx, x, y, value, scale) {
+    const sprite = this.#tileSprite(value);
+    const span = CELL + TILE_PAD * 2;
+    const size = span * scale;
+    ctx.drawImage(sprite, x + CELL / 2 - size / 2, y + CELL / 2 - size / 2, size, size);
+  }
+
+  /** One tile per value, glow, sheen and number baked, built on first sight. */
+  #tileSprite(value) {
+    let sprite = this.tileSprites.get(value);
+    if (sprite) return sprite;
+
+    const s = SPRITE_SCALE;
+    const span = CELL + TILE_PAD * 2;
+    sprite = document.createElement('canvas');
+    sprite.width = sprite.height = Math.ceil(span * s);
+    const g = sprite.getContext('2d');
+    g.scale(s, s);
+
     const [bg, fg] = TIERS[value] ?? ['#ff2e88', '#ffffff'];
-    const inset = (CELL * (1 - scale)) / 2;
-    const size = CELL * scale;
-
-    ctx.save();
     if (value >= 128) {
-      ctx.shadowColor = bg;
-      ctx.shadowBlur = 8 + Math.log2(value) * 2;
+      g.shadowColor = bg;
+      g.shadowBlur = Math.min(TILE_PAD * SPRITE_SCALE - 2, 8 + Math.log2(value) * 2);
     }
-    ctx.fillStyle = bg;
-    roundRect(ctx, x + inset, y + inset, size, size, 7 * scale);
-    ctx.fill();
-    ctx.restore();
+    g.fillStyle = bg;
+    roundRect(g, TILE_PAD, TILE_PAD, CELL, CELL, 7);
+    g.fill();
+    g.shadowBlur = 0;
 
-    if (scale < 0.7) return;
+    const sheen = g.createLinearGradient(0, TILE_PAD, 0, TILE_PAD + CELL);
+    sheen.addColorStop(0, 'rgba(255,255,255,0.16)');
+    sheen.addColorStop(0.5, 'rgba(255,255,255,0.02)');
+    sheen.addColorStop(1, 'rgba(0,0,0,0.2)');
+    g.fillStyle = sheen;
+    roundRect(g, TILE_PAD, TILE_PAD, CELL, CELL, 7);
+    g.fill();
 
     const digits = String(value).length;
-    const fontSize = Math.round(CELL * (digits > 3 ? 0.28 : digits > 2 ? 0.34 : 0.42) * scale);
-    this.text(ctx, String(value), x + CELL / 2, y + CELL / 2, {
+    const fontSize = Math.round(CELL * (digits > 3 ? 0.28 : digits > 2 ? 0.34 : 0.42));
+    this.text(g, String(value), span / 2, span / 2, {
       size: fontSize,
       color: fg,
       glow: value >= 512 ? 10 : 0,
     });
+
+    this.tileSprites.set(value, sprite);
+    return sprite;
+  }
+
+  #makeBackdrop() {
+    const s = SPRITE_SCALE;
+    const canvas = document.createElement('canvas');
+    canvas.width = W * s;
+    canvas.height = H * s;
+    const g = canvas.getContext('2d');
+    g.scale(s, s);
+
+    const wash = g.createLinearGradient(0, 0, 0, H);
+    wash.addColorStop(0, '#060a14');
+    wash.addColorStop(1, '#04060a');
+    g.fillStyle = wash;
+    g.fillRect(0, 0, W, H);
+
+    const well = g.createLinearGradient(0, PAD, 0, PAD + BOARD);
+    well.addColorStop(0, 'rgba(255,255,255,0.05)');
+    well.addColorStop(1, 'rgba(255,255,255,0.02)');
+    g.fillStyle = well;
+    roundRect(g, PAD, PAD, BOARD, BOARD, 10);
+    g.fill();
+
+    g.strokeStyle = 'rgba(0,229,255,0.22)';
+    g.shadowColor = '#00e5ff';
+    g.shadowBlur = 10;
+    g.lineWidth = 1.5;
+    roundRect(g, PAD - 0.5, PAD - 0.5, BOARD + 1, BOARD + 1, 10);
+    g.stroke();
+    g.shadowBlur = 0;
+
+    for (let r = 0; r < N; r++) {
+      for (let c = 0; c < N; c++) {
+        const { x, y } = this.#cellPos(r, c);
+        g.fillStyle = 'rgba(0,0,0,0.28)';
+        roundRect(g, x, y, CELL, CELL, 7);
+        g.fill();
+        g.fillStyle = 'rgba(255,255,255,0.045)';
+        roundRect(g, x, y, CELL, CELL, 7);
+        g.fill();
+        g.strokeStyle = 'rgba(255,255,255,0.05)';
+        g.lineWidth = 1;
+        roundRect(g, x + 0.5, y + 0.5, CELL - 1, CELL - 1, 7);
+        g.stroke();
+      }
+    }
+    return canvas;
   }
 }
 

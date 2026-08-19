@@ -600,3 +600,37 @@ single lever on a run's difficulty — and once the map stands for the whole run
 29 to 48 cells, and a competent player fell anywhere from wave 20 to wave 40 on
 the strength of that one number. Shape still varies freely; only the difficulty
 it implies is pinned.
+
+---
+
+## Wave fourteen — the flicker goes, every cabinet gets a finish pass
+
+Two requests: kill the CRT effect, and make every game look better while
+hunting whatever bugs a close read would turn up.
+
+**The CRT overlay is gone** — scanlines, vignette, and above all the flicker
+that strobed the whole screen every five and a half seconds. Its settings
+toggle went with it. Anything else that flashed died in the same spirit:
+Chomp's level-clear strobe is now a smooth cross-fade, Snake 3D's death no
+longer pulses the rails at five hertz, Simon's pads glow and decay instead of
+snapping on and off.
+
+**Every cabinet was repainted** in the same move, mostly by baking what never
+changes — board wells, card faces, tile and mine and disc sprites, starfields,
+the Chomp maze — into offscreen layers, which bought back the frame budget
+that per-frame glow strokes had been spending (the maze alone was ~500 shadowed
+strokes a frame) and let the money go where it shows: gradients and dome
+highlights on pieces, real pip layouts on cards, hull sprites with portholes in
+Battleship, particle bursts and score popups on the moments worth marking.
+
+**The close read paid for itself.** Among what it caught: completing a bingo
+line threw a TypeError; Cascade could crash resolving a special next to a
+cleared match; Battleship's AI abandoned known hits when its line ran out and
+stranded hits when two ships touched; Gin Rummy let both sides discard the card
+they had just drawn; Vector's magazine counted enemy fire against the player;
+power pellets never frightened ghosts still in the house; Blackjack's dealer
+cards lingered into the next betting phase; spun balls tunnelled through
+bricks; Solitaire and FreeCell could submit negative scores; Snake 3D could
+kill you with banked turns before the countdown ended and leaked GPU buffers on
+teardown. Rules and difficulty were left alone throughout — the fixes are the
+game doing what it already claimed.
