@@ -321,6 +321,9 @@ export default class Battleship extends BaseGame {
       this.addScore(500 + efficiency);
       this.banner('Fleet destroyed!');
       this.play('highscore');
+      this.particles.emit(TARGET_X + GRID_W / 2, GRID_Y + GRID_W / 2, {
+        count: 40, speed: 250, color: '#4ade80', life: 0.9, size: 3, shape: 'circle',
+      });
     } else {
       this.setLives(0);
       this.banner('Your fleet is sunk');
@@ -561,38 +564,28 @@ export default class Battleship extends BaseGame {
     if (this.message) this.text(ctx, this.message, TARGET_X, 26, { size: 12, color: '#fbbf24', align: 'left', weight: 700 });
   }
 
-  #drawGrid(ctx, x, label, own) {
-    this.text(ctx, label, x + GRID_W / 2, GRID_Y - 16, { size: 10, color: '#5c6478' });
-    ctx.save();
-    ctx.strokeStyle = 'rgba(255,255,255,0.14)';
-    ctx.lineWidth = 1;
-    for (let i = 0; i <= SIZE; i++) {
-      ctx.beginPath();
-      ctx.moveTo(x + i * CELL, GRID_Y);
-      ctx.lineTo(x + i * CELL, GRID_Y + GRID_W);
-      ctx.moveTo(x, GRID_Y + i * CELL);
-      ctx.lineTo(x + GRID_W, GRID_Y + i * CELL);
-      ctx.stroke();
-    }
-    ctx.restore();
-
+  #drawGrid(ctx, x, own) {
     const fleet = own ? this.playerFleet : this.aiFleet;
     const shots = own ? this.ownShots : this.trackShots;
 
-    // Your own fleet is always visible; the enemy's is only revealed cell by
-    // cell as it gets hit.
+    // Your own fleet is always visible; the enemy's is only revealed as its
+    // ships go down.
     if (own) {
+      for (const ship of fleet) this.#drawShip(ctx, x, ship, isSunk(ship) ? 0.5 : 1);
+    } else {
       for (const ship of fleet) {
-        for (const [r, c] of cellsFor(ship)) {
-          const cellIdx = idx(r, c);
-          const hit = shots.get(cellIdx) === 'hit';
-          ctx.save();
-          ctx.fillStyle = hit ? 'rgba(251,113,133,0.35)' : 'rgba(56,189,248,0.22)';
-          ctx.fillRect(x + c * CELL + 1, GRID_Y + r * CELL + 1, CELL - 2, CELL - 2);
-          ctx.restore();
-        }
+        if (isSunk(ship)) this.#drawShip(ctx, x, ship, 0.55);
       }
     }
+
+    // Damage tint under the hit markers.
+    ctx.save();
+    ctx.fillStyle = 'rgba(251,113,133,0.28)';
+    for (const [cellIdx, result] of shots) {
+      if (result !== 'hit') continue;
+      ctx.fillRect(x + (cellIdx % SIZE) * CELL + 1, GRID_Y + Math.floor(cellIdx / SIZE) * CELL + 1, CELL - 2, CELL - 2);
+    }
+    ctx.restore();
 
     for (const [cellIdx, result] of shots) {
       const r = Math.floor(cellIdx / SIZE);
@@ -616,18 +609,40 @@ export default class Battleship extends BaseGame {
       ctx.restore();
     }
 
-    // A sunk enemy ship is fully revealed as a small marker of respect.
-    if (!own) {
-      for (const ship of fleet) {
-        if (!isSunk(ship)) continue;
-        for (const [r, c] of cellsFor(ship)) {
-          ctx.save();
-          ctx.strokeStyle = 'rgba(251,113,133,0.5)';
-          ctx.lineWidth = 1.5;
-          ctx.strokeRect(x + c * CELL + 2, GRID_Y + r * CELL + 2, CELL - 4, CELL - 4);
-          ctx.restore();
-        }
-      }
+    // The most recent shot on each side, ringed so the exchange stays legible.
+    const last = own ? this.lastAiShot : this.lastPlayerShot;
+    if (last != null && shots.has(last)) {
+      ctx.save();
+      ctx.strokeStyle = '#ffd23f';
+      ctx.globalAlpha = 0.8;
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(x + (last % SIZE) * CELL + 1.5, GRID_Y + Math.floor(last / SIZE) * CELL + 1.5, CELL - 3, CELL - 3);
+      ctx.restore();
+    }
+
+    // A targeting reticle under the pointer, only where a shot is still legal.
+    if (!own && this.phase === 'battle' && this.turn === 'human' && this.result === null) {
+      const m = this.mouse;
+      if (!m.active) return;
+      const col = Math.floor((m.x - x) / CELL);
+      const row = Math.floor((m.y - GRID_Y) / CELL);
+      if (col < 0 || col >= SIZE || row < 0 || row >= SIZE) return;
+      if (shots.has(idx(row, col))) return;
+      const cx = x + col * CELL + CELL / 2;
+      const cy = GRID_Y + row * CELL + CELL / 2;
+      ctx.save();
+      ctx.strokeStyle = '#4ade80';
+      ctx.shadowColor = '#4ade80';
+      ctx.shadowBlur = 6;
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(x + col * CELL + 3, GRID_Y + row * CELL + 3, CELL - 6, CELL - 6);
+      ctx.beginPath();
+      ctx.moveTo(cx - CELL * 0.32, cy); ctx.lineTo(cx - CELL * 0.14, cy);
+      ctx.moveTo(cx + CELL * 0.14, cy); ctx.lineTo(cx + CELL * 0.32, cy);
+      ctx.moveTo(cx, cy - CELL * 0.32); ctx.lineTo(cx, cy - CELL * 0.14);
+      ctx.moveTo(cx, cy + CELL * 0.14); ctx.lineTo(cx, cy + CELL * 0.32);
+      ctx.stroke();
+      ctx.restore();
     }
   }
 }
