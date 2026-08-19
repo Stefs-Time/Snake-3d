@@ -67,6 +67,7 @@ export default class Cascade extends BaseGame {
     this.backdrop = this.#makeBackdrop();
 
     this.level = 1;
+    this.finished = false;
     this.#startLevel();
     this.banner('Match three');
     this.play('ready');
@@ -225,12 +226,16 @@ export default class Cascade extends BaseGame {
     const specials = [];
 
     for (const group of groups) {
+      // An earlier group's specials may already have swept this one away.
+      const sample = group.map((i) => this.grid[i]).find(Boolean);
+      if (!sample) continue;
+
       // A long line leaves something behind at the gem you moved, if it was
       // part of the line, and otherwise at the middle of it. The length that
       // matters is the straight run — an L of three and three is not a five.
       const run = this.#longestRun(group);
-      if (run >= 5) specials.push({ index: this.#anchorFor(group), kind: PRISM, color: this.grid[group[0]].color });
-      else if (run === 4) specials.push({ index: this.#anchorFor(group), kind: CHARGED, color: this.grid[group[0]].color });
+      if (run >= 5) specials.push({ index: this.#anchorFor(group), kind: PRISM, color: sample.color });
+      else if (run === 4) specials.push({ index: this.#anchorFor(group), kind: CHARGED, color: sample.color });
 
       const full = this.#expand(group);
       for (const index of full) {

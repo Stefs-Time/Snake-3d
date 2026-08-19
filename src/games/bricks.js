@@ -254,7 +254,9 @@ export default class Bricks extends BaseGame {
 
     for (const ball of this.balls) {
       // Substep so a fast ball cannot tunnel through a brick in one frame.
-      const steps = Math.max(1, Math.ceil((ball.speed * speedScale * dt) / (BALL_R * 1.4)));
+      // Measured from the real velocity — paddle spin can push it past speed.
+      const velocity = Math.hypot(ball.vx, ball.vy);
+      const steps = Math.max(1, Math.ceil((velocity * speedScale * dt) / (BALL_R * 1.4)));
       const sdt = dt / steps;
 
       for (let s = 0; s < steps; s++) {

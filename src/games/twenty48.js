@@ -401,7 +401,7 @@ export default class Twenty48 extends BaseGame {
     const [bg, fg] = TIERS[value] ?? ['#ff2e88', '#ffffff'];
     if (value >= 128) {
       g.shadowColor = bg;
-      g.shadowBlur = 8 + Math.log2(value) * 2;
+      g.shadowBlur = Math.min(TILE_PAD * SPRITE_SCALE - 2, 8 + Math.log2(value) * 2);
     }
     g.fillStyle = bg;
     roundRect(g, TILE_PAD, TILE_PAD, CELL, CELL, 7);

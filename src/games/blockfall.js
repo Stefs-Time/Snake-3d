@@ -388,6 +388,9 @@ export default class Blockfall extends BaseGame {
 
     // Lock delay: only runs while the piece is actually resting on something.
     if (this.#collides(this.piece, 0, 1, 0)) {
+      // Park the gravity clock too, or the time spent resting would be owed
+      // as an instant multi-cell fall the moment the piece slides off a ledge.
+      this.dropTimer = 0;
       this.lockTimer += dt;
       if (this.lockTimer >= 0.5) this.#lock();
     } else {
