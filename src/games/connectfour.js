@@ -195,6 +195,7 @@ export default class ConnectFour extends BaseGame {
     this.settleTimer = 0;
     this.aiTimer = starter === AI ? 0.7 : 0;
     this.falling = null; // { col, row, player, y, vy }
+    this.lastIndex = -1;
     this.depth = Math.min(7, 3 + Math.floor((this.round - 1) / 2) * 2);
     this.host.setSecondary(this.round);
   }
@@ -314,6 +315,7 @@ export default class ConnectFour extends BaseGame {
   #land() {
     const { col, row, player } = this.falling;
     this.cells[row * COLS + col] = player;
+    this.lastIndex = row * COLS + col;
     this.falling = null;
     this.shake.add(3);
     this.play('bounce');
@@ -417,6 +419,7 @@ export default class ConnectFour extends BaseGame {
 
   draw(ctx) {
     this.clear(ctx, '#060812');
+    ctx.drawImage(this.bgLayer, 0, 0, W, H);
     ctx.save();
     this.shake.apply(ctx);
 
@@ -483,39 +486,24 @@ export default class ConnectFour extends BaseGame {
 
   /** One dark slab with the cells cut out of it, drawn over the discs. */
   #drawSlab(ctx) {
-    ctx.save();
-    ctx.fillStyle = '#141c3a';
-    this.roundRect(ctx, BOARD_X - 10, BOARD_Y - 10, BOARD_W + 20, BOARD_H + 20, 14);
-    for (let r = 0; r < ROWS; r++) {
-      for (let c = 0; c < COLS; c++) {
-        const x = BOARD_X + c * CELL + CELL / 2;
-        const y = BOARD_Y + r * CELL + CELL / 2;
-        ctx.moveTo(x + DISC_R, y);
-        ctx.arc(x, y, DISC_R, 0, Math.PI * 2, true);
-      }
+    ctx.drawImage(this.slabLayer, 0, 0, W, H);
+
+    if (this.lastIndex >= 0 && this.cells[this.lastIndex] && !this.winLine) {
+      const x = BOARD_X + (this.lastIndex % COLS) * CELL + CELL / 2;
+      const y = BOARD_Y + Math.floor(this.lastIndex / COLS) * CELL + CELL / 2;
+      ctx.save();
+      ctx.strokeStyle = this.cells[this.lastIndex] === HUMAN ? '#fbbf24' : '#fb7185';
+      ctx.globalAlpha = 0.85;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(x, y, DISC_R + 2.5, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
     }
-    ctx.fill('evenodd');
-    ctx.strokeStyle = 'rgba(56,189,248,0.28)';
-    ctx.lineWidth = 1.5;
-    this.roundRect(ctx, BOARD_X - 10, BOARD_Y - 10, BOARD_W + 20, BOARD_H + 20, 14).stroke();
-    ctx.restore();
   }
 
   #disc(ctx, x, y, player, scale) {
-    const color = player === HUMAN ? '#fbbf24' : '#fb7185';
-    ctx.save();
-    ctx.shadowColor = color;
-    ctx.shadowBlur = 14;
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    ctx.arc(x, y, DISC_R * scale, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.shadowBlur = 0;
-    ctx.globalAlpha = 0.25;
-    ctx.fillStyle = '#ffffff';
-    ctx.beginPath();
-    ctx.arc(x - DISC_R * 0.24, y - DISC_R * 0.28, DISC_R * 0.42, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
+    const s = CELL * scale;
+    ctx.drawImage(this.discSprites[player], x - s / 2, y - s / 2, s, s);
   }
 }

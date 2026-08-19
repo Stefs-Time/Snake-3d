@@ -272,6 +272,7 @@ export default class Backgammon extends BaseGame {
     this.message = '';
     this.consecutivePasses = 0;
     this.lastAiMoves = null;
+    this.aiQueue = null;
     this.legalHuman = [];
     this.host.setSecondary(this.gameNo);
     this.#rollForTurn();
@@ -365,6 +366,9 @@ export default class Backgammon extends BaseGame {
       this.addScore(150 * multiplier);
       this.banner(multiplier === 3 ? 'Backgammon!' : multiplier === 2 ? 'Gammon!' : 'You win!');
       this.play('highscore');
+      this.particles.emit(BOARD_X + BOARD_W / 2, BOARD_Y + BOARD_H / 2, {
+        count: 40, speed: 260, color: '#38bdf8', life: 0.9, size: 3, shape: 'circle',
+      });
     } else {
       this.banner('The machine wins');
       this.play('die');
@@ -394,10 +398,10 @@ export default class Backgammon extends BaseGame {
       this.#endTurn();
       return;
     }
-    for (const move of seq) this.#commitMove('ai', move);
+    // Played out one checker at a time, so the machine's turn is watchable
+    // rather than a single simultaneous rearrangement.
     this.lastAiMoves = seq;
-    this.remaining = [];
-    this.#endTurn();
+    this.aiQueue = seq.slice();
   }
 
   /* ================================================================ moves */
@@ -456,7 +460,20 @@ export default class Backgammon extends BaseGame {
     }
     if (this.turn === 'ai') {
       this.aiTimer -= dt;
-      if (this.aiTimer <= 0) this.#aiTurn();
+      if (this.aiTimer > 0) return;
+      if (!this.aiQueue) {
+        this.#aiTurn();
+        if (this.aiQueue) this.aiTimer = 0.35;
+        return;
+      }
+      this.#commitMove('ai', this.aiQueue.shift());
+      if (this.aiQueue.length) {
+        this.aiTimer = 0.4;
+      } else {
+        this.aiQueue = null;
+        this.remaining = [];
+        this.#endTurn();
+      }
       return;
     }
 
@@ -703,7 +720,11 @@ export default class Backgammon extends BaseGame {
     const pulse = 0.35 + Math.abs(Math.sin(performance.now() / 420)) * 0.3;
 
     if (this.selection === 'bar') {
-      // handled via targets below
+      ctx.save();
+      ctx.strokeStyle = '#ffd23f';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(BOARD_X + 6 * POINT_W + 2, BOARD_Y + ROW_H + 2, BAR_W - 4, ROW_H - 4);
+      ctx.restore();
     } else if (this.selection != null && this.selection !== 'off') {
       const x = pointX(this.selection);
       const { row } = pointSlot(this.selection);

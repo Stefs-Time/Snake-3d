@@ -761,6 +761,13 @@ export default class Bulwark extends BaseGame {
       slow: stats.slow,
       color: stats.color,
     });
+    if (tower.type === 'cannon' || tower.type === 'lance') {
+      this.particles.emit(
+        tower.x + Math.cos(tower.angle) * CELL * 0.45,
+        tower.y + Math.sin(tower.angle) * CELL * 0.45,
+        { count: 4, speed: 90, angle: tower.angle, spread: 0.7, color: stats.color, life: 0.18, size: 2 },
+      );
+    }
     this.play(tower.type === 'cannon' || tower.type === 'lance' ? 'drop' : 'blip');
   }
 
@@ -789,6 +796,9 @@ export default class Bulwark extends BaseGame {
           });
         } else if (shot.target.hp > 0 && !shot.target.leaked) {
           this.#damage(shot.target, shot.damage, shot);
+          this.particles.emit(shot.x, shot.y, {
+            count: 3, speed: 70, color: shot.color, life: 0.22, size: 1.8,
+          });
         }
         continue;
       }
@@ -870,6 +880,11 @@ export default class Bulwark extends BaseGame {
         // Tougher enemies do more damage when they get through.
         this.health -= LEAK_DAMAGE[enemy.kind] ?? 1;
         this.leaked++;
+        this.particles.emit(ex, ey, {
+          count: 12, speed: 120, angle: Math.PI, spread: Math.PI * 0.9,
+          color: '#fb7185', life: 0.5, size: 2.6,
+        });
+        this.popups.add(ex - 20, ey - 14, `-${LEAK_DAMAGE[enemy.kind] ?? 1}`, '#fb7185');
         this.play('die');
         this.shake.add(7);
       }

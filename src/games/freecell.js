@@ -245,7 +245,7 @@ export default class FreeCell extends BaseGame {
       this.#snapshot();
       const moved = this.#removeGrabbed(from);
       this.tableau[to.col].push(...moved);
-      if (from.zone === 'foundation') this.addScore(-15);
+      if (from.zone === 'foundation') this.addScore(-Math.min(15, this.score));
       else this.play('select');
       // Cleared a column — but shuttling a pile between empty columns is not
       // clearing anything, so the landing spot must have held cards.

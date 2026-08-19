@@ -316,14 +316,49 @@ export default class Minefield extends BaseGame {
         g.lineWidth = 1;
         this.roundRect(g, 1.5, 1.5, CELL - 3, CELL - 3, 4).stroke();
       }),
+      mine: make((g) => this.#paintMine(g, '#fb7185')),
+      boom: make((g) => this.#paintMine(g, '#ffffff')),
     };
     return this.tiles;
+  }
+
+  #paintMine(g, color) {
+    const mid = CELL / 2;
+    g.strokeStyle = color;
+    g.lineWidth = 1.5;
+    g.beginPath();
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * Math.PI * 2 + Math.PI / 8;
+      g.moveTo(mid + Math.cos(a) * CELL * 0.18, mid + Math.sin(a) * CELL * 0.18);
+      g.lineTo(mid + Math.cos(a) * CELL * 0.34, mid + Math.sin(a) * CELL * 0.34);
+    }
+    g.stroke();
+    g.shadowColor = color;
+    g.shadowBlur = 10;
+    g.fillStyle = color;
+    g.beginPath();
+    g.arc(mid, mid, CELL * 0.2, 0, Math.PI * 2);
+    g.fill();
+    g.shadowBlur = 0;
+    g.fillStyle = 'rgba(255,255,255,0.55)';
+    g.beginPath();
+    g.arc(mid - CELL * 0.06, mid - CELL * 0.07, CELL * 0.06, 0, Math.PI * 2);
+    g.fill();
   }
 
   draw(ctx) {
     this.clear(ctx, '#080a10');
     ctx.save();
     this.shake.apply(ctx);
+
+    // A cool pool of light behind the board, so the field sits in space.
+    const cx = GRID_X + (COLS * CELL) / 2;
+    const cy = GRID_Y + (ROWS * CELL) / 2;
+    const bg = ctx.createRadialGradient(cx, cy, CELL * 3, cx, cy, COLS * CELL * 0.8);
+    bg.addColorStop(0, 'rgba(56,189,248,0.05)');
+    bg.addColorStop(1, 'rgba(56,189,248,0)');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
 
     this.#drawHeader(ctx);
 
@@ -339,6 +374,19 @@ export default class Minefield extends BaseGame {
     const tiles = this.#tileSprites();
     for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c < COLS; c++) this.#drawCell(ctx, this.cells[r][c], tiles);
+    }
+
+    // Hover ring on the cell under the pointer, tinted for the current tool.
+    if (!this.exploded && this.breakTimer <= 0 && this.mouse.active) {
+      const hc = Math.floor((this.mouse.x - GRID_X) / CELL);
+      const hr = Math.floor((this.mouse.y - GRID_Y) / CELL);
+      if (hr >= 0 && hr < ROWS && hc >= 0 && hc < COLS && !this.cells[hr][hc].revealed) {
+        ctx.save();
+        ctx.strokeStyle = this.flagMode ? 'rgba(251,113,133,0.7)' : 'rgba(56,189,248,0.6)';
+        ctx.lineWidth = 1.5;
+        this.roundRect(ctx, GRID_X + hc * CELL + 1.5, GRID_Y + hr * CELL + 1.5, CELL - 3, CELL - 3, 4).stroke();
+        ctx.restore();
+      }
     }
 
     this.drawEffects(ctx);
@@ -431,7 +479,7 @@ export default class Minefield extends BaseGame {
     }
 
     if (cell.mine) {
-      this.glowCircle(ctx, x + CELL / 2, y + CELL / 2, CELL * 0.22, cell.boom ? '#ffffff' : '#fb7185', 10);
+      ctx.drawImage(cell.boom ? tiles.boom : tiles.mine, x, y, CELL, CELL);
       return;
     }
 

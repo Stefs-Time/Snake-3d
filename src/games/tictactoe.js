@@ -162,6 +162,15 @@ export default class TicTacToe extends BaseGame {
       this.banner('You win');
       this.play('powerup');
       this.shake.add(4);
+      if (this.winningLine) {
+        for (const i of this.winningLine) {
+          this.particles.emit(
+            BOARD_X + (i % 3) * CELL + CELL / 2,
+            BOARD_Y + Math.floor(i / 3) * CELL + CELL / 2,
+            { count: 10, speed: 130, color: '#22d3ee', life: 0.55, size: 2.6, shape: 'circle' },
+          );
+        }
+      }
     } else if (winner === AI) {
       this.losses++;
       this.banner('Lost that one');
@@ -183,6 +192,9 @@ export default class TicTacToe extends BaseGame {
       this.addScore(2000 + this.matchesWon * 500);
       this.banner(`Match ${this.matchesWon}`);
       this.play('highscore');
+      this.particles.emit(BOARD_X + BOARD / 2, BOARD_Y + BOARD / 2, {
+        count: 36, speed: 240, color: '#22d3ee', life: 0.9, size: 3, shape: 'circle',
+      });
       this.meta = { match: this.match, matches: this.matchesWon };
       this.#startMatch();
       return;

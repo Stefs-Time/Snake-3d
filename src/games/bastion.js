@@ -209,6 +209,9 @@ export default class Bastion extends BaseGame {
       vx: Math.cos(angle) * speed,
       vy: Math.sin(angle) * speed,
     });
+    this.particles.emit(best.x, best.y - 14, {
+      count: 5, speed: 80, angle, spread: 0.8, color: BATTERY_COLOR, life: 0.22, size: 2,
+    });
     this.play('laser');
   }
 
@@ -579,6 +582,33 @@ export default class Bastion extends BaseGame {
 
     const loaded = this.batteries.some((b) => b.alive && b.ammo > 0);
     const color = loaded && m.y < GROUND_Y - 6 ? BATTERY_COLOR : '#fb7185';
+
+    // A faint tether to the battery that would take this shot, so the game's
+    // one rule — *nearest loaded* — is visible before the shell is spent.
+    if (loaded && m.y < GROUND_Y - 6) {
+      let best = null;
+      let bestDist = Infinity;
+      for (const b of this.batteries) {
+        if (!b.alive || b.ammo <= 0) continue;
+        const d = Math.hypot(b.x - m.x, b.y - m.y);
+        if (d < bestDist) {
+          bestDist = d;
+          best = b;
+        }
+      }
+      if (best) {
+        ctx.save();
+        ctx.strokeStyle = BATTERY_COLOR;
+        ctx.globalAlpha = 0.16;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 7]);
+        ctx.beginPath();
+        ctx.moveTo(best.x, best.y - 14);
+        ctx.lineTo(m.x, m.y);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
 
     ctx.save();
     ctx.strokeStyle = color;

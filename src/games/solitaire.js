@@ -291,7 +291,7 @@ export default class Solitaire extends BaseGame {
       const moved = this.#removeGrabbed(from, index);
       this.tableau[to.col].push(...moved);
       // Pulling a card back out of a foundation costs what it earned.
-      if (from.zone === 'foundation') this.addScore(-Math.round(12 * this.#multiplier));
+      if (from.zone === 'foundation') this.addScore(-Math.min(this.score, Math.round(12 * this.#multiplier)));
       else if (from.zone === 'waste') this.#award(1);
       this.play('select');
     } else {
@@ -322,7 +322,7 @@ export default class Solitaire extends BaseGame {
       // Recycling the waste costs points, as it does in the standard scoring.
       this.stock = this.waste.reverse().map((c) => ({ ...c, faceUp: false, flipT: 1 }));
       this.waste = [];
-      this.addScore(-20);
+      this.addScore(-Math.min(20, this.score));
       this.play('back');
     } else {
       for (let i = 0; i < this.drawCount && this.stock.length; i++) {

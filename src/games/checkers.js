@@ -294,6 +294,7 @@ export default class Checkers extends BaseGame {
 
   #apply(move) {
     const mover = this.turn;
+    const capVals = move.captured.map((i) => this.cells[i]);
     this.cells = applyMove(this.cells, move);
     this.plySinceAction = move.captured.length || move.becameKing ? 0 : this.plySinceAction + 1;
     this.selection = null;
@@ -305,6 +306,7 @@ export default class Checkers extends BaseGame {
       val: this.cells[idx(last.r, last.c)],
       to: idx(last.r, last.c),
       captured: move.captured,
+      capVals,
       capColor: mover === 'human' ? '#fb7185' : '#38bdf8',
       capIndex: 0,
       t: 0,
@@ -688,6 +690,11 @@ export default class Checkers extends BaseGame {
 
     if (this.anim) {
       const a = this.anim;
+      // Victims stay on the board until the hop actually clears them.
+      for (let j = a.capIndex; j < a.captured.length; j++) {
+        const ci = a.captured[j];
+        ctx.drawImage(this.sprites[a.capVals[j]], BOARD_X + (ci % N) * CELL, BOARD_Y + ((ci / N) | 0) * CELL, CELL, CELL);
+      }
       const segs = a.steps.length - 1;
       const p = Math.min(segs - 0.0001, (a.t / a.dur) * segs);
       const k = Math.floor(p);

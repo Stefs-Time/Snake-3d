@@ -218,6 +218,7 @@ export default class Blackjack extends BaseGame {
       this.message = playerNatural && dealerNatural ? 'Push — both blackjack'
         : playerNatural ? 'Blackjack!' : 'Dealer blackjack';
       this.play(playerNatural && !dealerNatural ? 'highscore' : playerNatural ? 'back' : 'die');
+      this.meta = { round: this.roundNo, chips: this.chips };
       this.phase = 'settle';
       this.settleTimer = 2.4;
       return;
@@ -396,6 +397,9 @@ export default class Blackjack extends BaseGame {
     }
     this.bet = 0;
     this.hands = [];
+    this.dealerHand = [];
+    this.dealerHoleHidden = true;
+    this.holeFlip = 1;
     this.phase = 'bet';
     this.message = '';
   }
@@ -608,10 +612,41 @@ export default class Blackjack extends BaseGame {
   }
 
   #drawBetTray(ctx) {
-    const label = this.phase === 'bet'
-      ? `BET  $${this.bet}`
-      : `BET  $${this.hands.reduce((n, h) => n + h.bet, 0)}`;
-    this.text(ctx, label, W / 2, BAR_Y - 18, { size: 11, color: '#8b93a7' });
+    const bet = this.phase === 'bet' ? this.bet : this.hands.reduce((n, h) => n + h.bet, 0);
+    this.text(ctx, `BET  $${bet}`, W / 2, BAR_Y - 18, { size: 11, color: '#8b93a7' });
+    if (bet <= 0 || this.phase !== 'bet') return;
+
+    // The escrowed bet as real chip stacks, broken down greedily by value.
+    ctx.save();
+    let remaining = bet;
+    const stacks = [];
+    for (let i = CHIP_VALUES.length - 1; i >= 0; i--) {
+      const v = CHIP_VALUES[i];
+      const count = Math.floor(remaining / v);
+      remaining -= count * v;
+      if (count > 0) stacks.push({ value: v, count: Math.min(count, 8) });
+    }
+    const stackW = 30;
+    let sx = W / 2 - (stacks.length * stackW) / 2 + stackW / 2;
+    const sy = BAR_Y - 40;
+    for (const stack of stacks) {
+      for (let i = 0; i < stack.count; i++) {
+        const cy = sy - i * 4;
+        ctx.fillStyle = 'rgba(0,0,0,0.45)';
+        ctx.beginPath();
+        ctx.ellipse(sx, cy + 2, 12, 5, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = CHIP_COLORS[stack.value];
+        ctx.beginPath();
+        ctx.ellipse(sx, cy, 12, 5, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(4,6,10,0.5)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+      sx += stackW;
+    }
+    ctx.restore();
   }
 
   /** `card` of null draws a face-down back. `t` slides it in, `flip` turns it. */
