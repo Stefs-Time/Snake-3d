@@ -14,7 +14,8 @@
     "preview": "npm run build && node server/index.js",
     "start": "node server/index.js",
     "smoke": "node scripts/smoke.mjs",
-    "balance": "node scripts/balance-bulwark.mjs"
+    "balance": "node scripts/balance-bulwark.mjs",
+    "balance:contagion": "node scripts/balance-contagion.mjs"
   },
   "dependencies": {
     "compression": "^1.7.5",

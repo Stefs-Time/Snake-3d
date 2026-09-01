@@ -669,6 +669,24 @@ export const GAMES = [
     scoreCeiling: 50_000,
     is3d: false,
   },
+  {
+    id: 'contagion',
+    title: 'Contagion',
+    codename: 'CNTGN',
+    tagline: 'You are the disease.',
+    blurb:
+      'Pick the country the outbreak starts in, then write the genome while the world works out what you are. Every gene that helps it spread also makes it easier to notice, and being noticed starts a cure clock you cannot stop \u2014 so the game is really about staying boring for as long as you can afford to. Growth inside a country is logistic and runs once per in-game day, susceptibility is built from wealth, density and climate, and the twelve regions are joined by three separate networks: land borders, shipping and flights, each gated by its own gene. Deaths come out of the infected, and the dead cannot infect, which is why haemorrhaging on day thirty is the classic way to lose. The cure is funded by the living rich, so killing them genuinely slows it down.',
+    year: 2008,
+    genre: 'Strategy',
+    accent: '#f43f5e',
+    accent2: '#a78bfa',
+    glyph: 'M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10M12 2v3M12 19v3M2 12h3M19 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1',
+    controls: ['Click a country to start the outbreak', 'Pop the DNA bubbles before they fade', 'Spend DNA on genes in the side panel'],
+    controlsTouch: ['Tap a country to start the outbreak', 'Pop the DNA bubbles before they fade', 'Tap a gene to evolve it'],
+    scoreLabel: 'Score',
+    scoreCeiling: 3_000_000,
+    is3d: false,
+  },
 ];
 
 /** @type {Record<string, GameDef>} */

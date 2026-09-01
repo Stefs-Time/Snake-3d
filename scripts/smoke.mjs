@@ -70,6 +70,7 @@ const TOUCH_BUTTONS = {
   twenty48: [null, 'UNDO'],
   solitaire: [null, 'UNDO'],
   chomp: [null, null],
+  contagion: ['GRAB', null],
 };
 
 async function main() {

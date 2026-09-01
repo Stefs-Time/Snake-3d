@@ -1,6 +1,6 @@
 # NEON CABINET
 
-An installable arcade. Thirty-two games behind one front end, built to be added
+An installable arcade. Thirty-three games behind one front end, built to be added
 to a home screen rather than bookmarked — it launches full screen, plays with
 no connection, and keeps a global leaderboard when it has one.
 
@@ -70,6 +70,12 @@ And three about holding something:
 | **Bulwark** | Defense | Tower defense. | Enemies are tracked by *distance along the path*, not position, which turns "shoot the one closest to the exit" — the only correct targeting rule — into a single `max()`. Health scales geometrically and waves compress, because gold compounds: with linear health the demand a wave makes grew slower than the defence paying for it, and past wave six the game got easier every wave. It now arrives in named stages — armour that grows, shades that cannot be chilled, wardens that shield their neighbours — and the panel shows the next wave's roster before you call it. The road is generated at setup and then stands for the whole run: a new map every game, never a new map mid-game, because a board you keep is what makes a tower a bet rather than a placement. Demand compounds, but only against what the board can still answer: armour stops growing once it reaches the biggest hit in the game, and bosses take a gentler curve than the waves around them, because a wave is fought by the whole board at once and a boss only by whatever covers the ground it is standing on. Both walls were found by probes rather than by reading — a board of maxed towers on infinite gold died at full health on wave 30, and every loss at every wave was a boss walking in. Three tempos scale the whole simulation, so Blitz is the same siege at two and a half times the speed rather than a different one. |
 | **Bastion** | Defense | Missile Command. | The whole game is the word *nearest*: ammunition is per battery, so the flank you have been defending runs dry first and the shot you need becomes a long arc from the wrong side. Blasts chain. Spare shells pay a bonus, which is the reason not to panic-fire. |
 | **Cascade** | Puzzle | Match three. | The chain is the game — a swap worth three is nothing, one that sets off four rounds of collapse is a level. Four in a line leaves a charged gem, five a prism, and a board with no legal swap reshuffles rather than stranding you. |
+
+And one about letting something go:
+
+| Game | Genre | What it is | Worth knowing |
+| --- | --- | --- | --- |
+| **Contagion** | Strategy | You are the disease. | Pick the country it starts in, then write the genome while the world works out what you are. Every gene that helps it spread also makes it easier to notice, and being noticed starts a cure clock nothing stops — so the game is staying boring for as long as you can afford to. The map is eighteen lines of ASCII, one character per cell naming the region that owns it; centroids, borders and hit targets are all derived from it, so the world is editable by anyone who can type. Growth inside a country is logistic and steps once per in-game day rather than sixty times a second, susceptibility is built from wealth, density and climate, and the twelve regions are joined by three separate networks — land, shipping and flights — each gated by its own gene, so a pathogen with no air gene walks and one with Air 2 is in Japan before Europe has coughed. Deaths come out of the infected and the dead cannot infect, which is why haemorrhaging on day thirty is the classic way to lose. Two things the balance probe found and reading never would: deaths are exponential decay, so a run tuned as if they were linear never actually ended, and research funded purely by the living rich falls to nothing exactly when you are winning — which sounds right and deletes the race, so a devastated world still musters forty percent. |
 
 ---
 
@@ -208,6 +214,7 @@ npm run build
 npm start &
 npm run smoke      # every route and every cabinet, in a real browser
 npm run balance    # plays Bulwark headlessly and checks the curve still ends
+npm run balance:contagion   # plays Contagion across all nine strain/world cells
 ```
 
 `balance-bulwark.mjs` drives the real cabinet with a scripted player that
@@ -225,6 +232,18 @@ could never once have fired. And the three paces are compared on one map, held
 still by seeding `Math.random` before the page loads; against freshly generated
 roads, comparing a run per pace measured the draw rather than the pace and
 failed on maps that were merely unlucky.
+
+`balance-contagion.mjs` does the same job for a game whose entire design is
+its numbers. It steps the real `update` by hand with the host loop paused, so a
+four-minute run takes a fraction of a second, and plays the line a person works
+out on their third go: start somewhere poor and crowded, buy transmission and
+the two cheap symptoms, unlock the climates before the world notices, harden
+against the cure, and evolve nothing lethal until the end. It catches every DNA
+bubble, which makes it an upper bound on income and so a lower bound on
+difficulty. A healthy cabinet wins nearly every Casual run, wins Normal with
+the cure somewhere in the eighties, and loses Brutal about half the time — and
+no cell is ever unanimous, because a strategy game whose outcome is decided
+before the first click is not one.
 
 Adding `?debug` to any `/play/:id` URL exposes the live cabinet as
 `window.__cabinet` — the running `PlayHost`, its `GameClass` and the game
