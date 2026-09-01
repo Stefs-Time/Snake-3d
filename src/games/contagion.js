@@ -961,10 +961,28 @@ export default class Contagion extends BaseGame {
    */
 
 
+  /**
+   * The pointer is read *before* the `action` edge, and the `action` edge is
+   * gated on there being no click this tick. That ordering is not tidiness:
+   * under the `point` touch scheme a pointer-down on the canvas also fires
+   * `action` (see `#bindPointer` in core/input.js), so a keyboard branch that
+   * reads `pressed('action')` first consumes every single click as a button
+   * press before the click itself is ever dispatched.
+   *
+   * It cost two bugs. Picking patient zero started the outbreak wherever the
+   * *keyboard* cursor happened to be — Europe, its default — no matter which
+   * country was clicked. And during a run, every click on the map also spent
+   * DNA on whichever gene the cursor was sitting on, or popped a bubble on the
+   * far side of the world.
+   *
+   * The on-screen GRAB button is bound to its own element rather than to the
+   * canvas, so it fires `action` without setting `pointer.pressed` and still
+   * works exactly as before.
+   */
   #handleInput() {
     if (this.state === 'ended') return;
 
-    /* --- keyboard --- */
+    /* --- tabs, on the number row, conflicting with nothing --- */
     for (let i = 0; i < TABS.length; i++) {
       if (this.input.keyPressed(`Digit${i + 1}`)) {
         this.tab = i;
@@ -973,50 +991,52 @@ export default class Contagion extends BaseGame {
       }
     }
 
+    /* --- pointer, first --- */
+    const m = this.mouse;
+    const clicked = m.pressed;
+
+    if (clicked) {
+      if (m.x >= PANEL_X) {
+        this.#panelClick(m.x, m.y);
+      } else {
+        // Bubbles sit on top of the map and are the thing most worth clicking,
+        // so they get first refusal on any press inside their radius.
+        const hit = this.#bubbleAt(m.x, m.y);
+        if (hit) {
+          this.collect(hit);
+        } else {
+          const region = this.#regionAt(m.x, m.y);
+          if (region && this.state === 'select') {
+            this.begin(region);
+          } else if (region) {
+            this.selected = region;
+            this.play('hover');
+          }
+        }
+      }
+    }
+
+    /* --- keyboard and gamepad --- */
     if (this.state === 'select') {
       const dir = this.input.takeDirection();
       if (dir) this.#stepRegionCursor(dir);
-      if (this.input.pressed('action')) this.begin(this.regions[this.regionCursor]);
-    } else {
-      if (this.input.pressed('left')) { this.tab = (this.tab + TABS.length - 1) % TABS.length; this.cursor = 0; this.play('toggle'); }
-      if (this.input.pressed('right')) { this.tab = (this.tab + 1) % TABS.length; this.cursor = 0; this.play('toggle'); }
-      const list = GENES[TABS[this.tab].id];
-      if (this.input.pressed('up')) { this.cursor = (this.cursor + list.length - 1) % list.length; this.play('hover'); }
-      if (this.input.pressed('down')) { this.cursor = (this.cursor + 1) % list.length; this.play('hover'); }
-
-      // One button, two jobs, in the order that matters: DNA on the map is on
-      // a timer, the gene panel is not.
-      if (this.input.pressed('action')) {
-        if (this.bubbles.length) this.collect(this.bubbles[0]);
-        else this.#geneAction(list[this.cursor]);
-      }
-      if (this.input.keyPressed('KeyX')) this.devolving = !this.devolving;
-    }
-
-    /* --- pointer --- */
-    const m = this.mouse;
-    if (!m.pressed) return;
-
-    if (m.x >= PANEL_X) {
-      this.#panelClick(m.x, m.y);
+      if (!clicked && this.input.pressed('action')) this.begin(this.regions[this.regionCursor]);
       return;
     }
 
-    // Bubbles sit on top of the map and are the thing most worth clicking, so
-    // they get first refusal on any press inside their radius.
-    const hit = this.#bubbleAt(m.x, m.y);
-    if (hit) {
-      this.collect(hit);
-      return;
-    }
+    if (this.input.pressed('left')) { this.tab = (this.tab + TABS.length - 1) % TABS.length; this.cursor = 0; this.play('toggle'); }
+    if (this.input.pressed('right')) { this.tab = (this.tab + 1) % TABS.length; this.cursor = 0; this.play('toggle'); }
+    const list = GENES[TABS[this.tab].id];
+    if (this.input.pressed('up')) { this.cursor = (this.cursor + list.length - 1) % list.length; this.play('hover'); }
+    if (this.input.pressed('down')) { this.cursor = (this.cursor + 1) % list.length; this.play('hover'); }
 
-    const region = this.#regionAt(m.x, m.y);
-    if (!region) return;
-    if (this.state === 'select') this.begin(region);
-    else {
-      this.selected = region;
-      this.play('hover');
+    // One button, two jobs, in the order that matters: DNA on the map is on a
+    // timer, the gene panel is not.
+    if (!clicked && this.input.pressed('action')) {
+      if (this.bubbles.length) this.collect(this.bubbles[0]);
+      else this.#geneAction(list[this.cursor]);
     }
+    if (this.input.keyPressed('KeyX')) this.devolving = !this.devolving;
   }
 
   #stepRegionCursor(dir) {

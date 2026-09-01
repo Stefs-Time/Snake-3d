@@ -202,6 +202,54 @@ async function main() {
     console.log(`  ✓ /play/${game.id.padEnd(10)} -> game-${game.id}.png  (score ${score})`);
   }
 
+  /* --- Contagion: a click has to land where it was aimed --- */
+  //
+  // Random clicking cannot catch this one. Under the `point` touch scheme a
+  // pointer-down on the canvas *also* fires the `action` edge, so a game that
+  // reads `pressed('action')` before it dispatches the click consumes every
+  // click as a button press. Contagion did: the outbreak always began wherever
+  // the keyboard cursor happened to be — Europe — whatever country you clicked,
+  // and mid-run every click on the map quietly spent DNA on the highlighted
+  // gene. Nothing threw, nothing looked wrong in a screenshot.
+  {
+    const aim = async (short) => {
+      await page.goto(`${BASE}/play/contagion?debug`, { waitUntil: 'networkidle' });
+      await page.waitForFunction(() => window.__cabinet?.game, null, { timeout: 15000 });
+      await page.waitForSelector('.overlay--brief', { timeout: 5000 }).catch(() => {});
+      await page.evaluate(() => window.__cabinet.dismissBriefing?.());
+      await page
+        .waitForFunction(() => !document.querySelector('.overlay--brief'), null, { timeout: 5000 })
+        .catch(() => {});
+
+      // Read the target's centroid from the live game and map it into the
+      // frame, rather than hardcoding a coordinate that a layout change breaks.
+      const at = await page.evaluate((id) => {
+        const cab = window.__cabinet;
+        const K = cab.GameClass;
+        const r = cab.game.regions.find((x) => x.short === id);
+        return { fx: r.cx / K.width, fy: (r.cy + K.hudPad.top) / K.pixelHeight };
+      }, short);
+      const box = await (await page.$('.cabinet__frame')).boundingBox();
+      await page.mouse.click(box.x + box.width * at.fx, box.y + box.height * at.fy);
+      await sleep(200);
+      return page.evaluate(() => {
+        const g = window.__cabinet.game;
+        return { zero: g.patientZero?.short ?? null, genes: g.owned.size };
+      });
+    };
+
+    for (const short of ['N.AMER', 'S.ASIA', 'OCEANIA']) {
+      const got = await aim(short);
+      if (got.zero !== short) {
+        problems.push(`[contagion] clicked ${short}, outbreak began in ${got.zero}`);
+      }
+      if (got.genes) {
+        problems.push(`[contagion] clicking the map bought ${got.genes} gene(s)`);
+      }
+    }
+    console.log('  ✓ contagion    -> patient zero lands where it is clicked');
+  }
+
   /* --- the leaderboard round trip --- */
   const initials = 'SMK';
   const submitted = await page.evaluate(async (init) => {
