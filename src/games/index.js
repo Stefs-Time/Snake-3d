@@ -39,6 +39,7 @@ const LOADERS = {
   backgammon: () => import('./backgammon.js'),
   battleship: () => import('./battleship.js'),
   wordladder: () => import('./wordladder.js'),
+  contagion: () => import('./contagion.js'),
 };
 
 /**

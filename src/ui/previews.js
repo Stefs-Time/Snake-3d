@@ -1792,6 +1792,76 @@ const PREVIEWS = {
     }
   },
 
+  /* --- Contagion: a dot-grid world going red from one point outward --- */
+  contagion(ctx, w, h, t, accent, accent2) {
+    // A coarse mask of "land", so the spread has a shape to crawl over rather
+    // than filling a rectangle. One bit per cell, read left to right.
+    const MAP = [
+      '..##.....###...',
+      '.####...#####..',
+      '.###...#######.',
+      '..#....##..####',
+      '..#...####..##.',
+      '..##..####.###.',
+      '...#...##...#..',
+      '...#...#...###.',
+    ];
+    const cols = MAP[0].length;
+    const rows = MAP.length;
+    const cell = Math.min(w / (cols + 2), h / (rows + 2));
+    const x0 = (w - cols * cell) / 2;
+    const y0 = (h - rows * cell) / 2;
+
+    // Patient zero sits in the middle-left landmass; the wave is a radius that
+    // grows over the loop, so a cell lights when the wave reaches it.
+    const seed = { c: 3, r: 5 };
+    // The wave finishes with a quarter of the loop to spare, so the card
+    // spends real time showing a half-infected world rather than a finished
+    // one — which is the state the game is actually about.
+    const loop = 9;
+    const phase = (t % loop) / loop;
+    const wave = phase * (cols * 1.7);
+
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        if (MAP[r][c] !== '#') continue;
+        const x = x0 + c * cell;
+        const y = y0 + r * cell;
+        const d = Math.hypot(c - seed.c, (r - seed.r) * 1.35);
+        const edge = wave - d;
+        const s = cell * 0.72;
+
+        if (edge <= 0) {
+          ctx.fillStyle = 'rgba(96,140,190,0.30)';
+          ctx.fillRect(x, y, s, s);
+        } else if (edge < 1) {
+          // The leading edge is the brightest thing on the card.
+          glow(ctx, accent, 10, () => ctx.fillRect(x, y, s, s));
+        } else {
+          ctx.fillStyle = edge > 7 ? accent2 : accent;
+          ctx.globalAlpha = edge > 7 ? 0.55 : 0.9;
+          ctx.fillRect(x, y, s, s);
+          ctx.globalAlpha = 1;
+        }
+      }
+    }
+
+    // One DNA bubble surfacing over infected ground, on its own slower clock.
+    const bt = (t % 2.6) / 2.6;
+    if (bt < 0.72) {
+      const bx = x0 + (seed.c + 3.5) * cell;
+      const by = y0 + (seed.r - 2.5) * cell;
+      const rad = cell * 0.6 * Math.min(1, bt * 6) * (1 + Math.sin(t * 7) * 0.08);
+      ctx.globalAlpha = 1 - Math.max(0, (bt - 0.5) / 0.22);
+      glow(ctx, '#fbbf24', 12, () => {
+        ctx.beginPath();
+        ctx.arc(bx, by, rad, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      ctx.globalAlpha = 1;
+    }
+  },
+
   default(ctx, w, h, t, accent) {
     glow(ctx, accent, 16, () => {
       ctx.beginPath();

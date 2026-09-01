@@ -634,3 +634,100 @@ bricks; Solitaire and FreeCell could submit negative scores; Snake 3D could
 kill you with banked turns before the countdown ended and leaked GPU buffers on
 teardown. Rules and difficulty were left alone throughout — the fixes are the
 game doing what it already claimed.
+
+---
+
+## Wave fifteen — Contagion
+
+One request: a game shaped like Plague — start an illness somewhere, spread it
+over the world. One new cabinet, `contagion`, and a new genre chip to hang it
+on.
+
+| # | Game | Codename | Core loop |
+| --- | --- | --- | --- |
+| 33 | **Contagion** | `contagion` | Pick patient zero, evolve a genome, beat the cure |
+
+**The map is a string.** Eighteen lines of ASCII, one character per cell naming
+the region that owns it. Centroids, borders and every click target are derived
+from it at setup, so the world is editable by anyone who can type and there is
+no coordinate data to keep in step with the art. The chunky cells that fall out
+of it are also the honest rendering: a region is a population, not a shape, and
+blocks that fill with red say that better than a smooth border would.
+
+**The simulation steps once per in-game day.** Growth inside a region is
+logistic — infectivity times susceptibles times infected — which is the one
+equation the genre needs and is stable at any step size; the same maths at
+60 Hz would spend sixty multiplications a second moving numbers by a rounding
+error. Susceptibility is built from wealth (healthcare), density and climate,
+and the ability track exists to knock those walls down: South Asia and
+Sub-Saharan Africa hold a third of everyone and are both hot, so a pathogen
+that skips Heat Resistance is capped at two thirds of the planet.
+
+**Regions are seeded by links, not by geography.** Land, sea and air are three
+separate networks over the same twelve nodes, each with its own traffic and its
+own gene. Closing a border multiplies the channel rather than cutting it,
+because a closed border in this genre is a delay, not a wall — and a wall makes
+the late game a coin flip on whether you got out in time.
+
+**Lethality is the trap, and it is meant to be.** Deaths are drawn from the
+infected and the dead cannot infect, so the classic loss is a plague that wipes
+Africa and never reaches Oceania. The one place the lethal path pays early is
+that the cure is funded by the living rich, so killing them slows research —
+a strategy that is wrong everywhere is not a choice, it is a trap with a label.
+
+**Three strains and three worlds**, and the strains are a triangle rather than
+a ladder. Bacteria is obedient and earns a quarter more DNA. Virus mutates a
+symptom of its own choosing every few weeks — free, never when you wanted it,
+and a third more expensive to shed. Prion is impossible to study, so the cure
+crawls, but every symptom costs a third more.
+
+**What the balance probe found, and reading never would.** `npm run
+balance:contagion` plays all nine strain/world cells with a competent scripted
+player, stepping the real `update` with the host loop paused so a four-minute
+run takes a fraction of a second. Three things only it could have told us:
+
+- **Deaths are exponential decay.** The lethality numbers were tuned as though
+  killing a fully infected world took `1 / rate` days. It takes
+  `ln(population) / rate`, which for eight billion people is about thirty
+  e-foldings — so a run that was unambiguously over spent another thousand days
+  rounding down and never ended. The symptom track is now three times as lethal
+  and both tails snap to zero: a region is finished at 0.4% alive, an outbreak
+  inside one at ten carriers.
+- **Research funded purely by the living rich falls to nothing exactly when you
+  are winning.** That sounds right and deletes the race — the cure froze at 3%
+  while the plague ground through the rest of the world unopposed. A devastated
+  world now still musters forty percent, and the labs *ramp*: a hundred and
+  fifty days from the news breaking to full output, which is the window the
+  whole game is played in.
+- **Cure bubbles were undoing more research than the labs were doing.** At 28%
+  of spawns and two points each, a player who caught them all cancelled the
+  world's entire effort. Rarer, smaller, and gated later.
+
+The curve it reports now: Casual is won nearly always, Normal is won with the
+cure somewhere in the eighties, and Brutal goes either way. No cell is
+unanimous, which is the point — a strategy game whose outcome is decided before
+the first click is not one.
+
+**Two bugs the screenshots caught and nothing else could have.**
+
+- The map never turned red. `mix()` blended two hex colours and returned
+  `rgb(...)`, so the second blend — land to red, then that to the colour of the
+  dead — parsed its own output as hex and produced `rgb(NaN,NaN,59)`. Canvas
+  *ignores* an invalid `fillStyle` rather than throwing, so every country drew
+  in whatever colour happened to be set last, no error was logged anywhere, and
+  the smoke test passed. Colour now stays in `[r, g, b]` triples until the
+  moment it is assigned.
+- On a phone held sideways the HUD sat on the game. It is DOM text scaled from
+  the frame's width, not the playfield's, so on a small frame it is
+  proportionally much taller — and the first layout put the strain name and the
+  gene tabs in exactly the two corners the score and the day counter land in,
+  with the row of life pips squarely on the ABILITY tab. The panel now starts
+  78 units down, measured at the frame width where the HUD's own scale factor
+  bottoms out and it stops shrinking with the cabinet.
+
+**Five verbs are deliberately public.** `begin`, `collect`, `evolve`, `devolve`
+and `recompute` are the things a player does to this game, and the debug hook
+in `docs/adding-a-game.md` is meant to be able to drive a cabinet — random
+clicking cannot reach a twenty-gene decision tree, and a probe that mirrors the
+formulas instead is a probe that eventually reports on a game nobody is
+playing.
